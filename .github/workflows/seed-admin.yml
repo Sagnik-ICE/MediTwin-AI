@@ -1,0 +1,29 @@
+name: Seed Admin Document
+
+on:
+  workflow_dispatch:
+
+jobs:
+  seed-admin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install dependencies
+        run: npm install
+        working-directory: tools
+      - name: Decode service account
+        if: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+        run: |
+          echo "$SERVICE_ACCOUNT_JSON" | base64 --decode > serviceAccount.json
+      - name: Seed admin
+        env:
+          SERVICE_ACCOUNT: serviceAccount.json
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          ADMIN_UID: ${{ secrets.ADMIN_UID }}
+          FIREBASE_PROJECT: ${{ secrets.FIREBASE_PROJECT }}
+        run: |
+          node ../tools/seed_admin.js --serviceAccount ./serviceAccount.json --project "$FIREBASE_PROJECT" --email "$ADMIN_EMAIL" --uid "$ADMIN_UID"

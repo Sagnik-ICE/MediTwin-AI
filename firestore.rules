@@ -1,0 +1,163 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function mainAdminEmail() {
+      return 'dibbay242-50-014@diu.edu.bd';
+    }
+
+    function isMainAdmin() {
+      return signedIn() && request.auth.token.email != null && request.auth.token.email.toLowerCase() == mainAdminEmail();
+    }
+
+    function isListedAdmin() {
+      return signedIn()
+        && (
+          exists(/databases/$(database)/documents/app_admins/$(request.auth.uid))
+          || (request.auth.token.email != null && exists(/databases/$(database)/documents/app_admins/$(request.auth.token.email.toLowerCase())))
+        );
+    }
+
+    function isAdminUser() {
+      return isMainAdmin() || isListedAdmin();
+    }
+
+    function validProfile(profile) {
+      return profile is map
+        && profile.keys().hasOnly([
+          'name',
+          'email',
+          'age',
+          'gender',
+          'bloodGroup',
+          'isBloodDonor',
+          'donorContactInfo',
+          'heightCm',
+          'weightKg',
+          'healthGoals',
+          'knownConditions',
+        ])
+        && profile.name is string && profile.name.size() <= 80
+        && profile.email is string && profile.email.size() <= 120
+        && profile.age is int && profile.age >= 0 && profile.age <= 120
+        && profile.gender is string && profile.gender.size() <= 40
+        && profile.bloodGroup is string && profile.bloodGroup.size() <= 8
+        && profile.isBloodDonor is bool
+        && profile.donorContactInfo is string && profile.donorContactInfo.size() <= 120
+        && profile.heightCm is number && profile.heightCm >= 0 && profile.heightCm <= 300
+        && profile.weightKg is number && profile.weightKg >= 0 && profile.weightKg <= 500
+        && profile.healthGoals is string && profile.healthGoals.size() <= 500
+        && profile.knownConditions is string && profile.knownConditions.size() <= 1000;
+    }
+
+    function validChatSession(session) {
+      return session is map
+        && session.keys().hasOnly(['id', 'title', 'createdAt', 'updatedAt', 'messages'])
+        && session.id is string && session.id.size() <= 80
+        && session.title is string && session.title.size() <= 120
+        && session.createdAt is timestamp
+        && session.updatedAt is timestamp
+        && session.messages is list && session.messages.size() <= 200
+        && session.messages.all(message, validChatMessage(message));
+    }
+
+    function validHealthLog(log) {
+      return log is map
+        && log.keys().hasOnly([
+          'date',
+          'sleepHours',
+          'waterGlasses',
+          'stressLevel',
+          'mood',
+          'exerciseMinutes',
+          'symptoms',
+          'foodQuality',
+          'weight',
+          'notes',
+          'healthScore',
+          'riskFlags',
+          'insight',
+        ])
+        && log.date is timestamp
+        && log.sleepHours is number && log.sleepHours >= 0 && log.sleepHours <= 24
+        && log.waterGlasses is int && log.waterGlasses >= 0 && log.waterGlasses <= 100
+        && log.stressLevel is int && log.stressLevel >= 0 && log.stressLevel <= 10
+        && log.mood is string && log.mood.size() <= 50
+        && log.exerciseMinutes is int && log.exerciseMinutes >= 0 && log.exerciseMinutes <= 1440
+        && log.symptoms is list && log.symptoms.size() <= 20
+        && log.foodQuality is string && log.foodQuality.size() <= 50
+        && log.weight is number && log.weight >= 0 && log.weight <= 500
+        && log.notes is string && log.notes.size() <= 5000
+        && log.healthScore is int && log.healthScore >= 0 && log.healthScore <= 100
+        && log.riskFlags is list && log.riskFlags.size() <= 20
+        && log.insight is string && log.insight.size() <= 5000;
+    }
+
+    function validChatMessage(message) {
+      return message is map
+        && message.keys().hasOnly(['text', 'isUser', 'timestamp', 'isError'])
+        && message.text is string && message.text.size() <= 5000
+        && message.isUser is bool
+        && message.timestamp is timestamp
+        && message.isError is bool;
+    }
+
+    function validState(data) {
+      return data is map
+        && data.keys().hasOnly([
+          'profile',
+          'logs',
+          'chatSessions',
+          'activeChatSessionId',
+          'onboardingCompleted',
+          'updatedAt',
+        ])
+        && validProfile(data.profile)
+        && data.logs is list && data.logs.size() <= 500
+        && data.chatSessions is list && data.chatSessions.size() <= 20
+        && data.chatSessions.all(session, validChatSession(session))
+        && (data.activeChatSessionId == null || data.activeChatSessionId is string)
+        && data.onboardingCompleted is bool
+        && data.updatedAt is timestamp;
+    }
+
+    match /users/{userId} {
+      allow read, write: if false;
+
+      match /app/state {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && validState(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    match /app_admins/{adminId} {
+      allow read: if isMainAdmin() || isListedAdmin();
+      allow create, update, delete: if isMainAdmin();
+    }
+
+    // Public read access for directory and emergency resources.
+    match /doctors/{docId} {
+      allow read: if true;
+      allow write: if isAdminUser();
+    }
+
+    match /emergency_resources/{resId} {
+      allow read: if true;
+      allow write: if isAdminUser();
+    }
+
+    match /blood_donors/{donorId} {
+      allow read: if true;
+      allow write: if isAdminUser();
+    }
+  }
+}
