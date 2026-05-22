@@ -1,7 +1,7 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:provider/provider.dart';
@@ -15,12 +15,14 @@ import 'services/firestore_service.dart';
 import 'services/storage_service.dart';
 import 'theme/app_theme.dart';
 
+bool _crashlyticsEnabled = false;
+
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  await runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
 
-  await _initializeFirebaseAndCrashlytics();
+    await _initializeFirebaseAndCrashlytics();
 
-  runZonedGuarded(() {
     FlutterError.onError = (details) {
       FlutterError.presentError(details);
       _recordFlutterFatal(details);
@@ -40,28 +42,40 @@ Future<void> main() async {
 Future<void> _initializeFirebaseAndCrashlytics() async {
   try {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-    await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
+    if (!kIsWeb) {
+      await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
+      _crashlyticsEnabled = true;
+    }
   } catch (_) {
     // Keep the app running even if Firebase/Crashlytics is unavailable in this build.
+    _crashlyticsEnabled = false;
   }
 }
 
 bool _canUseCrashlytics() {
-  return Firebase.apps.isNotEmpty;
+  return _crashlyticsEnabled;
 }
 
 void _recordFlutterFatal(FlutterErrorDetails details) {
   if (!_canUseCrashlytics()) {
     return;
   }
-  FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+  try {
+    FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+  } catch (_) {
+    // Never let crash reporting crash the app.
+  }
 }
 
 void _recordFatalError(Object error, StackTrace stack) {
   if (!_canUseCrashlytics()) {
     return;
   }
-  FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+  try {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+  } catch (_) {
+    // Never let crash reporting crash the app.
+  }
 }
 
 class MediTwinApp extends StatelessWidget {

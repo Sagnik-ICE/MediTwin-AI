@@ -10,8 +10,12 @@ class UserProfile {
     required this.heightCm,
     required this.weightKg,
     required this.healthGoals,
-    required this.knownConditions,
-  });
+    String? contactInfo,
+    String? knownConditions,
+    this.division = '',
+    this.district = '',
+    this.accountType = 'patient',
+  }) : contactInfo = contactInfo ?? knownConditions ?? '';
 
   final String name;
   final String email;
@@ -23,7 +27,12 @@ class UserProfile {
   final double heightCm;
   final double weightKg;
   final String healthGoals;
-  final String knownConditions;
+  final String accountType;
+  final String contactInfo;
+  final String division;
+  final String district;
+
+  String get knownConditions => contactInfo;
 
   factory UserProfile.empty() => UserProfile(
       name: '',
@@ -36,7 +45,10 @@ class UserProfile {
       heightCm: 0,
       weightKg: 0,
       healthGoals: '',
-      knownConditions: '',
+      contactInfo: '',
+      division: '',
+      district: '',
+      accountType: 'patient',
       );
 
   Map<String, dynamic> toMap() {
@@ -51,11 +63,16 @@ class UserProfile {
       'heightCm': heightCm,
       'weightKg': weightKg,
       'healthGoals': healthGoals,
-      'knownConditions': knownConditions,
+      'contactInfo': contactInfo,
+      'knownConditions': contactInfo,
+      'division': division,
+      'district': district,
+      'accountType': accountType,
     };
   }
 
   factory UserProfile.fromMap(Map<String, dynamic> map) {
+    final contact = (map['contactInfo'] as String?) ?? (map['knownConditions'] as String?) ?? '';
     return UserProfile(
       name: (map['name'] as String?) ?? '',
       email: (map['email'] as String?) ?? '',
@@ -67,7 +84,10 @@ class UserProfile {
       heightCm: (map['heightCm'] as num?)?.toDouble() ?? 0,
       weightKg: (map['weightKg'] as num?)?.toDouble() ?? 0,
       healthGoals: (map['healthGoals'] as String?) ?? '',
-      knownConditions: (map['knownConditions'] as String?) ?? '',
+      contactInfo: contact,
+      division: (map['division'] as String?) ?? '',
+      district: (map['district'] as String?) ?? '',
+      accountType: (map['accountType'] as String?) ?? 'patient',
     );
   }
 }

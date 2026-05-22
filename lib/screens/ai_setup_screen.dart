@@ -32,6 +32,7 @@ class _AiSetupScreenState extends State<AiSetupScreen> {
   Future<void> _testAndSave() async {
     final endpoint = _controller.text.trim();
     if (endpoint.isEmpty) {
+      // ignore: use_build_context_synchronously
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter the AI endpoint.')));
       return;
     }
@@ -42,6 +43,7 @@ class _AiSetupScreenState extends State<AiSetupScreen> {
     try {
       final ok = await appState.testBackendConnection();
       if (!mounted) return;
+      // ignore: use_build_context_synchronously
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(ok ? 'AI server reachable.' : 'Could not reach the AI server. Check the laptop and network.'),
         backgroundColor: ok ? Colors.green : Colors.orange,
@@ -52,6 +54,7 @@ class _AiSetupScreenState extends State<AiSetupScreen> {
     } catch (e) {
       DebugLogger.error('AI setup test failed', e);
       if (!mounted) return;
+      // ignore: use_build_context_synchronously
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Connection test failed: $e')));
     } finally {
       if (mounted) setState(() => _testing = false);
@@ -61,12 +64,14 @@ class _AiSetupScreenState extends State<AiSetupScreen> {
   Future<void> _saveOnly() async {
     final endpoint = _controller.text.trim();
     if (endpoint.isEmpty) {
+      // ignore: use_build_context_synchronously
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter the AI endpoint.')));
       return;
     }
     final appState = context.read<AppState>();
     await appState.setApiUrl(endpoint);
     if (!mounted) return;
+    // ignore: use_build_context_synchronously
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Endpoint saved. You can test it any time in Settings.')));
     Navigator.pop(context, true);
   }

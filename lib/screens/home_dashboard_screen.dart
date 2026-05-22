@@ -50,16 +50,21 @@ class HomeDashboardScreen extends StatelessWidget {
                           ? Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                HealthScoreRing(score: appState.todayScore, size: 96),
+                                      HealthScoreRing(score: appState.todayScore, size: 88),
                                 const SizedBox(height: 14),
-                                Text('Current summary', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                                      Text('Current summary', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
                                 const SizedBox(height: 6),
-                                Text(appState.personalizedInsight, style: Theme.of(context).textTheme.bodyMedium),
+                                      Text(
+                                        appState.personalizedInsight,
+                                        style: Theme.of(context).textTheme.bodyMedium,
+                                        maxLines: 4,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                               ],
                             )
                           : Row(
                               children: [
-                                HealthScoreRing(score: appState.todayScore, size: 96),
+                                      HealthScoreRing(score: appState.todayScore, size: 88),
                                 const SizedBox(width: 16),
                                 Expanded(
                                   child: Column(
@@ -67,7 +72,12 @@ class HomeDashboardScreen extends StatelessWidget {
                                     children: [
                                       Text('Current summary', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
                                       const SizedBox(height: 6),
-                                      Text(appState.personalizedInsight, style: Theme.of(context).textTheme.bodyMedium),
+                                            Text(
+                                              appState.personalizedInsight,
+                                              style: Theme.of(context).textTheme.bodyMedium,
+                                              maxLines: 4,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
                                     ],
                                   ),
                                 ),

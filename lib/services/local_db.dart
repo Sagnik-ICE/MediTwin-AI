@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/health_log.dart';
@@ -9,8 +10,13 @@ import '../utils/debug_logger.dart';
 class LocalDb {
   static Directory? _appDocDir;
   static File? _healthFile;
+  static List<HealthLog> _memoryLogs = [];
 
   static Future<void> init() async {
+    if (kIsWeb) {
+      // path_provider file APIs are unavailable on web.
+      return;
+    }
     try {
       _appDocDir = await getApplicationDocumentsDirectory();
       _healthFile = File('${_appDocDir!.path}${Platform.pathSeparator}health_logs.json');
@@ -24,8 +30,14 @@ class LocalDb {
   }
 
   static Future<List<HealthLog>> loadHealthLogs() async {
+    if (kIsWeb) {
+      return List<HealthLog>.from(_memoryLogs);
+    }
     try {
       if (_healthFile == null) await init();
+      if (_healthFile == null) {
+        return [];
+      }
       final content = await _healthFile!.readAsString();
       final list = jsonDecode(content) as List<dynamic>;
       return list.map((e) => HealthLog.fromMap(Map<String, dynamic>.from(e))).toList();
@@ -37,8 +49,15 @@ class LocalDb {
   }
 
   static Future<void> saveHealthLogs(List<HealthLog> logs) async {
+    if (kIsWeb) {
+      _memoryLogs = List<HealthLog>.from(logs);
+      return;
+    }
     try {
       if (_healthFile == null) await init();
+      if (_healthFile == null) {
+        return;
+      }
       final list = logs.map((e) => e.toMap()).toList();
       await _healthFile!.writeAsString(jsonEncode(list));
     } catch (e, st) {

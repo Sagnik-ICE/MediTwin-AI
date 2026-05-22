@@ -39,6 +39,18 @@ class FirestoreService {
     return _firestore.collection('app_admins').doc(adminId);
   }
 
+  CollectionReference<Map<String, dynamic>> _doctorCategoriesCol() {
+    return _firestore.collection('doctor_categories');
+  }
+
+  CollectionReference<Map<String, dynamic>> _doctorAppointmentsCol() {
+    return _firestore.collection('doctor_appointments');
+  }
+
+  CollectionReference<Map<String, dynamic>> _doctorRatingsCol() {
+    return _firestore.collection('doctor_ratings');
+  }
+
   Future<void> saveUserState({
     required String userId,
     required UserProfile profile,
@@ -90,6 +102,12 @@ class FirestoreService {
     try {
       final doc = await _adminDoc(email.toLowerCase()).get();
       return doc.exists;
+    } on FirebaseException catch (e) {
+      if (e.code == 'permission-denied') {
+        return false;
+      }
+      DebugLogger.error('Failed to check admin email', e, StackTrace.current);
+      return false;
     } catch (e, stack) {
       DebugLogger.error('Failed to check admin email', e, stack);
       return false;
@@ -108,6 +126,12 @@ class FirestoreService {
       // Fallback: search for a document that has a `uid` field matching this uid
       final q = await _firestore.collection('app_admins').where('uid', isEqualTo: uid).limit(1).get();
       return q.docs.isNotEmpty;
+    } on FirebaseException catch (e) {
+      if (e.code == 'permission-denied') {
+        return false;
+      }
+      DebugLogger.error('Failed to check admin uid', e, StackTrace.current);
+      return false;
     } catch (e, stack) {
       DebugLogger.error('Failed to check admin uid', e, stack);
       return false;
@@ -137,6 +161,123 @@ class FirestoreService {
       await _adminDoc(adminId).delete();
     } catch (e, stack) {
       DebugLogger.error('Failed to delete admin $adminId', e, stack);
+      rethrow;
+    }
+  }
+
+  Future<List<String>> loadDoctorCategories() async {
+    try {
+      final snapshot = await _doctorCategoriesCol().orderBy('name').get();
+      return snapshot.docs.map((doc) => (doc.data()['name'] ?? '').toString()).where((name) => name.trim().isNotEmpty).toList();
+    } catch (e, stack) {
+      DebugLogger.error('Failed to load doctor categories', e, stack);
+      return <String>[];
+    }
+  }
+
+  Future<void> saveDoctorCategory(String name) async {
+    try {
+      await _doctorCategoriesCol().doc(name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_')).set({
+        'name': name.trim(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e, stack) {
+      DebugLogger.error('Failed to save doctor category', e, stack);
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>?> getDoctorByUserId(String userId) async {
+    try {
+      if (userId.isEmpty) return null;
+      final q = await _firestore.collection('doctors').where('doctorUserId', isEqualTo: userId).limit(1).get();
+      if (q.docs.isEmpty) return null;
+      final data = q.docs.first.data();
+      return {...data, 'id': q.docs.first.id};
+    } catch (e, stack) {
+      DebugLogger.error('Failed to get doctor by user id', e, stack);
+      return null;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> queryDoctorAppointments({String? doctorUserId, String? patientUid}) async {
+    try {
+      Query<Map<String, dynamic>> q = _doctorAppointmentsCol().orderBy('appointmentAt', descending: false);
+      if (doctorUserId != null && doctorUserId.isNotEmpty) {
+        q = q.where('doctorUserId', isEqualTo: doctorUserId);
+      }
+      if (patientUid != null && patientUid.isNotEmpty) {
+        q = q.where('patientUid', isEqualTo: patientUid);
+      }
+      final snapshot = await q.limit(200).get();
+      return snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+    } catch (e, stack) {
+      DebugLogger.error('Failed to query doctor appointments', e, stack);
+      return <Map<String, dynamic>>[];
+    }
+  }
+
+  Future<String> saveDoctorAppointment(Map<String, dynamic> appointment) async {
+    try {
+      final docRef = appointment['id'] == null || appointment['id'].toString().isEmpty
+          ? _doctorAppointmentsCol().doc()
+          : _doctorAppointmentsCol().doc(appointment['id'].toString());
+      await docRef.set({
+        ...appointment,
+        'updatedAt': FieldValue.serverTimestamp(),
+        if (appointment['createdAt'] == null) 'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      return docRef.id;
+    } catch (e, stack) {
+      DebugLogger.error('Failed to save doctor appointment', e, stack);
+      rethrow;
+    }
+  }
+
+  Future<double> recalculateDoctorRating(String doctorId) async {
+    try {
+      final snapshot = await _doctorRatingsCol().where('doctorId', isEqualTo: doctorId).get();
+      if (snapshot.docs.isEmpty) {
+        await _firestore.collection('doctors').doc(doctorId).set({'rating': 0, 'ratingCount': 0}, SetOptions(merge: true));
+        return 0;
+      }
+      final ratings = snapshot.docs.map((d) => (d.data()['rating'] as num?)?.toDouble() ?? 0).toList();
+      final avg = ratings.reduce((a, b) => a + b) / ratings.length;
+      await _firestore.collection('doctors').doc(doctorId).set({
+        'rating': avg,
+        'ratingCount': ratings.length,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      return avg;
+    } catch (e, stack) {
+      DebugLogger.error('Failed to recalculate doctor rating', e, stack);
+      return 0;
+    }
+  }
+
+  Future<void> saveDoctorRating({
+    required String doctorId,
+    required String doctorUserId,
+    required String patientUid,
+    required String patientName,
+    required double rating,
+    String? review,
+  }) async {
+    try {
+      final docId = '${doctorId}_$patientUid';
+      await _doctorRatingsCol().doc(docId).set({
+        'doctorId': doctorId,
+        'doctorUserId': doctorUserId,
+        'patientUid': patientUid,
+        'patientName': patientName,
+        'rating': rating,
+        'review': review ?? '',
+        'updatedAt': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      await recalculateDoctorRating(doctorId);
+    } catch (e, stack) {
+      DebugLogger.error('Failed to save doctor rating', e, stack);
       rethrow;
     }
   }
@@ -245,8 +386,14 @@ class FirestoreService {
           final name = (doc['name'] ?? '').toString().toLowerCase();
           final quals = (doc['qualification'] ?? '').toString().toLowerCase();
           final chamber = (doc['chamber'] ?? '').toString().toLowerCase();
+          final chambers = (doc['chambers'] as List<dynamic>? ?? const []);
+          final chamberMatch = chambers.whereType<Map<String, dynamic>>().any((item) {
+            final title = (item['name'] ?? '').toString().toLowerCase();
+            final address = (item['address'] ?? '').toString().toLowerCase();
+            return title.contains(s) || address.contains(s);
+          });
           final categoryField = (doc['category'] ?? '').toString().toLowerCase();
-          return name.contains(s) || quals.contains(s) || chamber.contains(s) || categoryField.contains(s);
+          return name.contains(s) || quals.contains(s) || chamber.contains(s) || chamberMatch || categoryField.contains(s);
         }).toList();
       }
 

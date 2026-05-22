@@ -35,8 +35,11 @@ class AiService {
             'stream': false,
             'temperature': 0.4,
             'top_p': 0.9,
-            'prompt':
-                'You are a professional preventive healthcare assistant. Chat mode: $chatMode. Reply clearly, politely, and concisely. Use short headings and clean paragraphs when helpful. Do not use leading asterisks for bullets. If the user message is unrelated to health or is unclear, gently redirect them back to health, lifestyle, symptoms, appointments, or medication-adjacent guidance. Do not mention being an AI model. Do not diagnose. Memory: ${memoryHints.join(' | ')}. User: $prompt',
+            'prompt': _buildPrompt(
+              userPrompt: prompt,
+              chatMode: chatMode,
+              memoryHints: memoryHints,
+            ),
           }),
         )
             .timeout(const Duration(seconds: 20));
@@ -112,6 +115,35 @@ class AiService {
     }
 
     return parsed;
+  }
+
+  String _buildPrompt({
+    required String userPrompt,
+    required String chatMode,
+    required List<String> memoryHints,
+  }) {
+    final memory = memoryHints.where((e) => e.trim().isNotEmpty).join(' | ');
+    return '''
+You are a professional preventive healthcare assistant.
+Mode: $chatMode
+
+Rules:
+- Prioritize accuracy over breadth. If uncertain, say what is uncertain.
+- Never invent medical facts, doses, lab values, or diagnoses.
+- Keep responses practical and personalized to the user's message and memory.
+- Use simple language and short sections.
+- Do not mention being an AI model.
+- For emergencies (chest pain, stroke signs, severe breathing issues, self-harm risk), instruct immediate local emergency care.
+
+Output format:
+1) Brief assessment of likely concern
+2) Action plan (3-6 specific steps)
+3) Red flags: when to seek urgent care
+4) One follow-up question if key details are missing
+
+Memory: $memory
+User message: $userPrompt
+''';
   }
 
   String _extractAssistantText(Map<String, dynamic> decoded) {

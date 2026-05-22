@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -19,11 +21,6 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _testingConnection = false;
   final _chatModes = const ['General', 'Symptoms', 'Nutrition', 'Sleep', 'Stress'];
 
-  Future<void> _sendQuickPrompt(String prompt) async {
-    _controller.text = prompt;
-    await _send();
-  }
-
   @override
   void initState() {
     super.initState();
@@ -42,8 +39,8 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ).then((open) {
           if (open == true) {
-            if (!mounted) return;
-            Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AiSetupScreen()));
+                                                              if (!mounted) return;
+                                                              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AiSetupScreen()));
           }
         });
       }
@@ -139,7 +136,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   Row(
                     children: [
                       Expanded(
-                        child: Text('Chats', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                        child: Text('Chats', style: Theme.of(sheetContext).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
                       ),
                       IconButton(
                         onPressed: () async {
@@ -154,7 +151,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   Expanded(
                     child: ListView.separated(
                       itemCount: sessions.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      separatorBuilder: (context, _) => const SizedBox(height: 8),
                       itemBuilder: (context, index) {
                         final session = sessions[index];
                         final selected = session.id == appState.activeChatSessionId;
@@ -276,19 +273,6 @@ class _ChatScreenState extends State<ChatScreen> {
                                   }).toList(),
                                 ),
                               ),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                                child: Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    ActionChip(label: const Text('Sleep'), onPressed: () => _sendQuickPrompt('Give me a simple sleep improvement plan.')),
-                                    ActionChip(label: const Text('Nutrition'), onPressed: () => _sendQuickPrompt('Suggest a balanced meal plan for better energy.')),
-                                    ActionChip(label: const Text('Symptoms'), onPressed: () => _sendQuickPrompt('Help me understand these symptoms and what to do next.')),
-                                    ActionChip(label: const Text('Stress'), onPressed: () => _sendQuickPrompt('Give me a short stress reduction routine.')),
-                                  ],
-                                ),
-                              ),
                               const SizedBox(height: 10),
                               Expanded(
                                 child: appState.chatMessages.isEmpty
@@ -378,7 +362,9 @@ class _ChatScreenState extends State<ChatScreen> {
                                                                       final ok = await appState.testBackendConnection();
                                                                       if (!mounted) return;
                                                                       setState(() => _testingConnection = false);
-                                                                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                                                      final messenger = ScaffoldMessenger.of(context);
+                                                                      // The surrounding code checks `mounted` before this point.
+                                                                      messenger.showSnackBar(SnackBar(
                                                                         content: Text(ok ? 'AI server reachable.' : 'Could not reach the AI server.'),
                                                                         backgroundColor: ok ? Colors.green : Colors.orange,
                                                                       ));
@@ -483,7 +469,7 @@ class _ChatSidebar extends StatelessWidget {
                 child: Row(
                   children: [
                     Expanded(
-                      child: Text('Chats', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                        child: Text('Chats', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
                     ),
                     FilledButton.tonalIcon(
                       onPressed: onNewChat,
@@ -497,29 +483,32 @@ class _ChatSidebar extends StatelessWidget {
                 child: ListView.separated(
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                   itemCount: sessions.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  separatorBuilder: (context, _) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
                     final session = sessions[index];
                     final selected = session.id == activeChatSessionId;
-                    return ListTile(
-                      selected: selected,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      tileColor: selected ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.45) : null,
-                      title: Text(session.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                      subtitle: Text('${session.messages.length} messages', maxLines: 1, overflow: TextOverflow.ellipsis),
-                      onTap: () => onSelect(session),
-                      trailing: PopupMenuButton<String>(
-                        onSelected: (value) {
-                          if (value == 'rename') {
-                            onRename(session);
-                          } else if (value == 'delete') {
-                            onDelete(session);
-                          }
-                        },
-                        itemBuilder: (_) => const [
-                          PopupMenuItem(value: 'rename', child: Text('Rename')),
-                          PopupMenuItem(value: 'delete', child: Text('Delete')),
-                        ],
+                    return Material(
+                      color: selected ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.45) : Colors.transparent,
+                      borderRadius: BorderRadius.circular(16),
+                      child: ListTile(
+                        selected: selected,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        title: Text(session.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        subtitle: Text('${session.messages.length} messages', maxLines: 1, overflow: TextOverflow.ellipsis),
+                        onTap: () => onSelect(session),
+                        trailing: PopupMenuButton<String>(
+                          onSelected: (value) {
+                            if (value == 'rename') {
+                              onRename(session);
+                            } else if (value == 'delete') {
+                              onDelete(session);
+                            }
+                          },
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(value: 'rename', child: Text('Rename')),
+                            PopupMenuItem(value: 'delete', child: Text('Delete')),
+                          ],
+                        ),
                       ),
                     );
                   },

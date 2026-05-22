@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../constants/bd_locations.dart';
 import '../providers/app_state.dart';
 import '../services/firestore_service.dart';
 import '../utils/debug_logger.dart';
@@ -17,30 +18,25 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
   final _searchController = TextEditingController();
   final _divisionController = TextEditingController();
   final _districtController = TextEditingController();
-  final _bloodGroupController = TextEditingController();
 
   final _fs = FirestoreService();
   String? _selectedType;
   String _query = '';
   String _division = 'All';
   String _district = 'All';
+  String _bloodGroup = 'All';
   bool _loading = false;
   List<Map<String, dynamic>> _items = [];
 
-  static const List<String> _divisions = [
-    'Barishal', 'Chattogram', 'Dhaka', 'Khulna', 'Mymensingh', 'Rajshahi', 'Rangpur', 'Sylhet'
-  ];
+  static const List<String> _divisions = BdLocations.divisions;
 
-  static const List<String> _districts = [
-    'Bagerhat', 'Bandarban', 'Barguna', 'Barishal', 'Bhola', 'Bogura', 'Brahmanbaria', 'Chandpur', 'Chapainawabganj', 'Chattogram', 'Chuadanga', 'Coxs Bazar', 'Cumilla', 'Dhaka', 'Dinajpur', 'Faridpur', 'Feni', 'Gaibandha', 'Gazipur', 'Gopalganj', 'Habiganj', 'Jamalpur', 'Jashore', 'Jhalokati', 'Jhenaidah', 'Joypurhat', 'Khagrachhari', 'Khulna', 'Kishoreganj', 'Kurigram', 'Kushtia', 'Lakshmipur', 'Lalmonirhat', 'Madaripur', 'Magura', 'Manikganj', 'Meherpur', 'Moulvibazar', 'Munshiganj', 'Mymensingh', 'Naogaon', 'Narail', 'Narayanganj', 'Narsingdi', 'Natore', 'Netrokona', 'Nilphamari', 'Noakhali', 'Pabna', 'Panchagarh', 'Patuakhali', 'Pirojpur', 'Rajbari', 'Rajshahi', 'Rangamati', 'Rangpur', 'Satkhira', 'Shariatpur', 'Sherpur', 'Sirajganj', 'Sunamganj', 'Sylhet', 'Tangail'
-  ];
+  static const List<String> _districts = BdLocations.districts;
 
   @override
   void dispose() {
     _searchController.dispose();
     _divisionController.dispose();
     _districtController.dispose();
-    _bloodGroupController.dispose();
     super.dispose();
   }
 
@@ -50,6 +46,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
       _query = '';
       _division = 'All';
       _district = 'All';
+      _bloodGroup = 'All';
     });
     await _reload();
   }
@@ -60,7 +57,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     try {
       if (_selectedType == 'donor') {
         _items = await _fs.queryDonors(
-          bloodGroup: _bloodGroupController.text.trim().isEmpty ? null : _bloodGroupController.text.trim(),
+          bloodGroup: _bloodGroup == 'All' ? null : _bloodGroup,
           division: _division == 'All' ? null : _division,
           district: _district == 'All' ? null : _district,
           limit: 2000,
@@ -177,10 +174,14 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                     ),
                     if (_selectedType == 'donor') ...[
                       const SizedBox(height: 10),
-                      TextField(
-                        controller: _bloodGroupController,
-                        onChanged: (_) async => await _reload(),
-                        decoration: const InputDecoration(labelText: 'Blood group', prefixIcon: Icon(Icons.bloodtype_rounded)),
+                      _dropdown(
+                        'Blood group',
+                        _bloodGroup,
+                        const ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'],
+                        (value) async {
+                          setState(() => _bloodGroup = value ?? 'All');
+                          await _reload();
+                        },
                       ),
                     ],
                   ],
@@ -258,7 +259,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
 
   Widget _dropdown(String label, String value, List<String> items, ValueChanged<String?> onChanged) {
     return DropdownButtonFormField<String>(
-      value: value,
+      initialValue: value,
       items: ['All', ...items]
           .map((item) => DropdownMenuItem<String>(value: item, child: Text(item)))
           .toList(),
@@ -298,51 +299,60 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     final nameController = TextEditingController(text: existing?['name']?.toString() ?? '');
     final contactController = TextEditingController(text: (existing?['contact'] ?? existing?['phone'] ?? '').toString());
     final noteController = TextEditingController(text: (existing?['note'] ?? existing?['details'] ?? '').toString());
-    String selectedDivision = _divisions.contains(existing?['division']?.toString() ?? '')
-        ? existing!['division'].toString()
-        : _divisions.first;
-    String selectedDistrict = _districts.contains(existing?['district']?.toString() ?? '')
-        ? existing!['district'].toString()
-        : _districts.first;
-    String selectedBloodGroup = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].contains(existing?['bloodGroup']?.toString() ?? '')
-        ? existing!['bloodGroup'].toString()
-        : 'O+';
+    String? selectedDivision = _divisions.contains(existing?['division']?.toString() ?? '')
+      ? existing!['division'].toString()
+      : null;
+    String? selectedDistrict = _districts.contains(existing?['district']?.toString() ?? '')
+      ? existing!['district'].toString()
+      : null;
+    String? selectedBloodGroup = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].contains(existing?['bloodGroup']?.toString() ?? '')
+      ? existing!['bloodGroup'].toString()
+      : null;
 
     final formKey = GlobalKey<FormState>();
     final saved = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
           title: Text(existing == null ? 'Add ${_typeTitle(type)}' : 'Edit ${_typeTitle(type)}'),
           content: SingleChildScrollView(
-            child: Form(
-              key: formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
+            child: SizedBox(
+              width: 520,
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
                   TextFormField(controller: nameController, decoration: const InputDecoration(labelText: 'Name'), validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null),
+                  const SizedBox(height: 12),
                   _dropdownField(
                     label: 'Division',
                     value: selectedDivision,
                     items: _divisions,
-                    onChanged: (value) => setDialogState(() => selectedDivision = value ?? _divisions.first),
+                    onChanged: (value) => setDialogState(() => selectedDivision = value),
                   ),
+                  const SizedBox(height: 12),
                   _dropdownField(
                     label: 'District',
                     value: selectedDistrict,
                     items: _districts,
-                    onChanged: (value) => setDialogState(() => selectedDistrict = value ?? _districts.first),
+                    onChanged: (value) => setDialogState(() => selectedDistrict = value),
                   ),
+                  const SizedBox(height: 12),
                   if (type == 'donor')
                     _dropdownField(
                       label: 'Blood group',
                       value: selectedBloodGroup,
                       items: const ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'],
-                      onChanged: (value) => setDialogState(() => selectedBloodGroup = value ?? 'O+'),
+                      onChanged: (value) => setDialogState(() => selectedBloodGroup = value),
                     ),
+                  if (type == 'donor') const SizedBox(height: 12),
                   TextFormField(controller: contactController, decoration: const InputDecoration(labelText: 'Contact'), validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null),
+                  const SizedBox(height: 12),
                   TextFormField(controller: noteController, decoration: const InputDecoration(labelText: 'Note / details'), maxLines: 3),
                 ],
+                ),
               ),
             ),
           ),
@@ -362,6 +372,18 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     );
 
     if (!(saved ?? false)) return;
+    if (selectedDivision == null || selectedDivision!.isEmpty || selectedDistrict == null || selectedDistrict!.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Division and district are required.')));
+      }
+      return;
+    }
+    if (type == 'donor' && (selectedBloodGroup == null || selectedBloodGroup!.isEmpty)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Blood group is required for donors.')));
+      }
+      return;
+    }
     final payload = <String, dynamic>{
       if (existing?['id'] != null) 'id': existing!['id'],
       'type': type,
@@ -376,9 +398,23 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     };
 
     if (type == 'donor') {
-      await _fs.saveDonor(payload);
+      try {
+        await _fs.saveDonor(payload);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save donor: $e')));
+        }
+        return;
+      }
     } else {
-      await _fs.saveEmergencyResource(payload);
+      try {
+        await _fs.saveEmergencyResource(payload);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save entry: $e')));
+        }
+        return;
+      }
     }
     if (mounted) await _reload();
   }
@@ -387,17 +423,19 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
 
   Widget _dropdownField({
     required String label,
-    required String value,
+    required String? value,
     required List<String> items,
     required ValueChanged<String?> onChanged,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: EdgeInsets.zero,
       child: DropdownButtonFormField<String>(
-        value: items.contains(value) ? value : items.first,
+        initialValue: (value != null && items.contains(value)) ? value : null,
+        hint: Text(label),
         items: items.map((item) => DropdownMenuItem<String>(value: item, child: Text(item))).toList(),
         onChanged: onChanged,
         decoration: InputDecoration(labelText: label),
+        validator: (selected) => (selected == null || selected.isEmpty) ? 'Required' : null,
       ),
     );
   }

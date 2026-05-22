@@ -6,6 +6,7 @@ import '../providers/app_state.dart';
 import '../widgets/app_logo.dart';
 import 'admin_shell.dart';
 import 'auth_screen.dart';
+import 'doctor_shell.dart';
 import 'main_shell.dart';
 import 'onboarding_screen.dart';
 
@@ -48,10 +49,11 @@ class _SplashScreenState extends State<SplashScreen>
           if (!appState.loggedIn) {
             return const AuthScreen();
           }
-          if (!appState.onboardingCompleted) {
-            return const OnboardingScreen();
+          if (appState.isDoctor) {
+            return const DoctorShell();
           }
-          return appState.isAdmin ? const AdminShell() : const MainShell();
+          final isAdminUser = appState.isAdmin || appState.profile.accountType.toLowerCase() == 'admin';
+          return isAdminUser ? const AdminShell() : const MainShell();
         },
       ),
     );

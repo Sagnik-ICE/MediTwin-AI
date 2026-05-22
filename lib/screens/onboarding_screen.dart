@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../constants/bd_locations.dart';
 import '../models/user_profile.dart';
 import '../providers/app_state.dart';
 import '../widgets/disclaimer_banner.dart';
@@ -22,10 +23,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   late final TextEditingController _heightController;
   late final TextEditingController _weightController;
   late final TextEditingController _goalsController;
-  late final TextEditingController _conditionsController;
-  late final TextEditingController _donorContactController;
-  String _gender = 'Male';
-  String _bloodGroup = 'O+';
+  late final TextEditingController _contactController;
+  String _gender = '';
+  String _bloodGroup = '';
+  String _division = '';
+  String _district = '';
   bool _isBloodDonor = false;
 
   @override
@@ -35,13 +37,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _signupEmail = context.read<AppState>().currentUserEmail ?? p.email;
     _nameController = TextEditingController(text: p.name);
     _ageController = TextEditingController(text: p.age > 0 ? p.age.toString() : '');
-    _gender = p.gender == 'Female' ? 'Female' : 'Male';
-    _bloodGroup = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].contains(p.bloodGroup) ? p.bloodGroup : 'O+';
+    _gender = ['Male', 'Female'].contains(p.gender) ? p.gender : '';
+    _bloodGroup = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].contains(p.bloodGroup) ? p.bloodGroup : '';
     _heightController = TextEditingController(text: p.heightCm > 0 ? p.heightCm.toStringAsFixed(0) : '');
     _weightController = TextEditingController(text: p.weightKg > 0 ? p.weightKg.toStringAsFixed(1) : '');
     _goalsController = TextEditingController(text: p.healthGoals);
-    _conditionsController = TextEditingController(text: p.knownConditions);
-    _donorContactController = TextEditingController(text: p.donorContactInfo);
+    _contactController = TextEditingController(text: p.contactInfo);
+    _division = BdLocations.divisions.contains(p.division) ? p.division : '';
+    _district = BdLocations.districts.contains(p.district) ? p.district : '';
     _isBloodDonor = p.isBloodDonor;
   }
 
@@ -52,8 +55,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _heightController.dispose();
     _weightController.dispose();
     _goalsController.dispose();
-    _conditionsController.dispose();
-    _donorContactController.dispose();
+    _contactController.dispose();
     super.dispose();
   }
 
@@ -69,11 +71,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       gender: _gender,
       bloodGroup: _bloodGroup,
       isBloodDonor: _isBloodDonor,
-      donorContactInfo: _isBloodDonor ? _donorContactController.text.trim() : '',
+      donorContactInfo: _isBloodDonor ? _contactController.text.trim() : '',
       heightCm: double.parse(_heightController.text.trim()),
       weightKg: double.parse(_weightController.text.trim()),
       healthGoals: _goalsController.text.trim(),
-      knownConditions: _conditionsController.text.trim(),
+      contactInfo: _contactController.text.trim(),
+      division: _division,
+      district: _district,
     );
 
     await context.read<AppState>().completeOnboarding(profile);
@@ -116,31 +120,45 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     label: 'Gender',
                     value: _gender,
                     items: const ['Male', 'Female'],
-                    onChanged: (value) => setState(() => _gender = value ?? 'Male'),
+                    onChanged: (value) => setState(() => _gender = value ?? ''),
                   ),
                   _selectField(
                     label: 'Blood group',
                     value: _bloodGroup,
                     items: const ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'],
-                    onChanged: (value) => setState(() => _bloodGroup = value ?? 'O+'),
+                    onChanged: (value) => setState(() => _bloodGroup = value ?? ''),
                   ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     value: _isBloodDonor,
-                    onChanged: (value) => setState(() => _isBloodDonor = value),
+                    onChanged: (value) => setState(() {
+                      _isBloodDonor = value;
+                      if (!value) {
+                        _division = '';
+                        _district = '';
+                      }
+                    }),
                     title: const Text('Willing to be a blood donor'),
-                    subtitle: const Text('Your donor details will be stored for emergency contact.'),
+                    subtitle: const Text('Your contact will be reused for donor records if you opt in.'),
                   ),
-                  if (_isBloodDonor)
-                    _field(
-                      _donorContactController,
-                      'Donor contact info',
-                      validatorMessage: 'Enter phone number or contact info for donors',
-                    ),
+                  _field(_contactController, 'Contact', validatorMessage: 'Enter a contact number or email'),
                   _field(_heightController, 'Height (cm)', number: true),
                   _field(_weightController, 'Weight (kg)', number: true),
                   _field(_goalsController, 'Health goals', maxLines: 2),
-                  _field(_conditionsController, 'Known conditions', maxLines: 2),
+                  if (_isBloodDonor) ...[
+                    _selectField(
+                      label: 'Division',
+                      value: _division,
+                      items: BdLocations.divisions,
+                      onChanged: (value) => setState(() => _division = value ?? ''),
+                    ),
+                    _selectField(
+                      label: 'District',
+                      value: _district,
+                      items: BdLocations.districts,
+                      onChanged: (value) => setState(() => _district = value ?? ''),
+                    ),
+                  ],
                   const SizedBox(height: 4),
                   Align(
                     alignment: Alignment.centerLeft,
@@ -202,7 +220,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: DropdownButtonFormField<String>(
-        value: value,
+        initialValue: value.isEmpty ? null : value,
+        hint: Text(label),
         items: items.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
         onChanged: onChanged,
         decoration: InputDecoration(labelText: label),

@@ -1,7 +1,8 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // ---------- Auth & admin helpers ----------
     function signedIn() {
       return request.auth != null;
     }
@@ -15,52 +16,61 @@ service cloud.firestore {
     }
 
     function isMainAdmin() {
-      return signedIn() && request.auth.token.email != null && request.auth.token.email.toLowerCase() == mainAdminEmail();
+      return signedIn() && request.auth.token.email != null && request.auth.token.email == mainAdminEmail();
     }
 
     function isListedAdmin() {
-      return signedIn()
-        && (
-          exists(/databases/$(database)/documents/app_admins/$(request.auth.uid))
-          || (request.auth.token.email != null && exists(/databases/$(database)/documents/app_admins/$(request.auth.token.email.toLowerCase())))
-        );
+      return signedIn() && (
+        exists(/databases/$(database)/documents/app_admins/$(request.auth.uid))
+        || (request.auth.token.email != null && exists(/databases/$(database)/documents/app_admins/$(request.auth.token.email)))
+      );
     }
 
     function isAdminUser() {
-      return isMainAdmin() || isListedAdmin();
+      return signedIn() && (
+        (request.auth.token.admin == true)
+        || isMainAdmin()
+        || isListedAdmin()
+      );
     }
 
+    // ---------- Validators (nullable-friendly) ----------
     function validProfile(profile) {
       return profile is map
         && profile.keys().hasOnly([
-          'name',
-          'email',
-          'age',
-          'gender',
-          'bloodGroup',
-          'isBloodDonor',
-          'donorContactInfo',
-          'heightCm',
-          'weightKg',
-          'healthGoals',
-          'knownConditions',
+          'name','email','age','gender','bloodGroup','isBloodDonor','donorContactInfo',
+          'heightCm','weightKg','healthGoals','contactInfo','knownConditions','division','district','accountType'
         ])
         && profile.name is string && profile.name.size() <= 80
         && profile.email is string && profile.email.size() <= 120
-        && profile.age is int && profile.age >= 0 && profile.age <= 120
+        && ((profile.age is int) || profile.age == null)
+        && (profile.age == null || (profile.age >= 0 && profile.age <= 120))
         && profile.gender is string && profile.gender.size() <= 40
         && profile.bloodGroup is string && profile.bloodGroup.size() <= 8
         && profile.isBloodDonor is bool
-        && profile.donorContactInfo is string && profile.donorContactInfo.size() <= 120
-        && profile.heightCm is number && profile.heightCm >= 0 && profile.heightCm <= 300
-        && profile.weightKg is number && profile.weightKg >= 0 && profile.weightKg <= 500
-        && profile.healthGoals is string && profile.healthGoals.size() <= 500
-        && profile.knownConditions is string && profile.knownConditions.size() <= 1000;
+        && (profile.donorContactInfo == null || (profile.donorContactInfo is string && profile.donorContactInfo.size() <= 120))
+        && (profile.heightCm == null || (profile.heightCm is number && profile.heightCm >= 0 && profile.heightCm <= 300))
+        && (profile.weightKg == null || (profile.weightKg is number && profile.weightKg >= 0 && profile.weightKg <= 500))
+        && (profile.healthGoals == null || (profile.healthGoals is string && profile.healthGoals.size() <= 500))
+        && (profile.contactInfo == null || (profile.contactInfo is string && profile.contactInfo.size() <= 200))
+        && (profile.knownConditions == null || (profile.knownConditions is string && profile.knownConditions.size() <= 1000))
+        && (profile.division == null || (profile.division is string && profile.division.size() <= 50))
+        && (profile.district == null || (profile.district is string && profile.district.size() <= 50))
+        && (profile.accountType == null || (profile.accountType is string && profile.accountType.size() <= 30));
+    }
+
+    function validChatMessage(message) {
+      return message is map
+        && message.keys().hasOnly(['text','isUser','timestamp','isError'])
+        && message.text is string && message.text.size() <= 5000
+        && message.isUser is bool
+        && message.timestamp is timestamp
+        && message.isError is bool;
     }
 
     function validChatSession(session) {
       return session is map
-        && session.keys().hasOnly(['id', 'title', 'createdAt', 'updatedAt', 'messages'])
+        && session.keys().hasOnly(['id','title','createdAt','updatedAt','messages'])
         && session.id is string && session.id.size() <= 80
         && session.title is string && session.title.size() <= 120
         && session.createdAt is timestamp
@@ -72,92 +82,130 @@ service cloud.firestore {
     function validHealthLog(log) {
       return log is map
         && log.keys().hasOnly([
-          'date',
-          'sleepHours',
-          'waterGlasses',
-          'stressLevel',
-          'mood',
-          'exerciseMinutes',
-          'symptoms',
-          'foodQuality',
-          'weight',
-          'notes',
-          'healthScore',
-          'riskFlags',
-          'insight',
+          'date','sleepHours','waterGlasses','stressLevel','mood','exerciseMinutes','symptoms',
+          'foodQuality','weight','notes','healthScore','riskFlags','insight'
         ])
         && log.date is timestamp
-        && log.sleepHours is number && log.sleepHours >= 0 && log.sleepHours <= 24
-        && log.waterGlasses is int && log.waterGlasses >= 0 && log.waterGlasses <= 100
-        && log.stressLevel is int && log.stressLevel >= 0 && log.stressLevel <= 10
-        && log.mood is string && log.mood.size() <= 50
-        && log.exerciseMinutes is int && log.exerciseMinutes >= 0 && log.exerciseMinutes <= 1440
-        && log.symptoms is list && log.symptoms.size() <= 20
-        && log.foodQuality is string && log.foodQuality.size() <= 50
-        && log.weight is number && log.weight >= 0 && log.weight <= 500
-        && log.notes is string && log.notes.size() <= 5000
-        && log.healthScore is int && log.healthScore >= 0 && log.healthScore <= 100
-        && log.riskFlags is list && log.riskFlags.size() <= 20
-        && log.insight is string && log.insight.size() <= 5000;
-    }
-
-    function validChatMessage(message) {
-      return message is map
-        && message.keys().hasOnly(['text', 'isUser', 'timestamp', 'isError'])
-        && message.text is string && message.text.size() <= 5000
-        && message.isUser is bool
-        && message.timestamp is timestamp
-        && message.isError is bool;
+        && (log.sleepHours is number && log.sleepHours >= 0 && log.sleepHours <= 24)
+        && (log.waterGlasses is int && log.waterGlasses >= 0 && log.waterGlasses <= 100)
+        && (log.stressLevel is int && log.stressLevel >= 0 && log.stressLevel <= 10)
+        && (log.mood is string && log.mood.size() <= 50)
+        && (log.exerciseMinutes is int && log.exerciseMinutes >= 0 && log.exerciseMinutes <= 1440)
+        && (log.symptoms is list && log.symptoms.size() <= 20)
+        && (log.foodQuality is string && log.foodQuality.size() <= 50)
+        && (log.weight is number && log.weight >= 0 && log.weight <= 500)
+        && (log.notes is string && log.notes.size() <= 5000)
+        && (log.healthScore is int && log.healthScore >= 0 && log.healthScore <= 100)
+        && (log.riskFlags is list && log.riskFlags.size() <= 20)
+        && (log.insight is string && log.insight.size() <= 5000);
     }
 
     function validState(data) {
       return data is map
-        && data.keys().hasOnly([
-          'profile',
-          'logs',
-          'chatSessions',
-          'activeChatSessionId',
-          'onboardingCompleted',
-          'updatedAt',
-        ])
+        && data.keys().hasOnly(['profile','logs','chatSessions','chatMessages','activeChatSessionId','onboardingCompleted','updatedAt'])
         && validProfile(data.profile)
-        && data.logs is list && data.logs.size() <= 500
-        && data.chatSessions is list && data.chatSessions.size() <= 20
-        && data.chatSessions.all(session, validChatSession(session))
-        && (data.activeChatSessionId == null || data.activeChatSessionId is string)
+        && ((data.logs is list) && data.logs.size() <= 500 && data.logs.all(l, validHealthLog(l)))
+        && ((data.chatSessions is list) && data.chatSessions.size() <= 20 && data.chatSessions.all(s, validChatSession(s)))
+        && ((data.chatMessages == null) || (data.chatMessages is list && data.chatMessages.size() <= 200 && data.chatMessages.all(m, validChatMessage(m))))
+        && ((data.activeChatSessionId == null) || data.activeChatSessionId is string)
         && data.onboardingCompleted is bool
         && data.updatedAt is timestamp;
     }
 
+    // ---------- Users' app state ----------
     match /users/{userId} {
-      allow read, write: if false;
+      allow get, list: if false; // No top-level user list
 
       match /app/state {
-        allow read: if isOwner(userId);
-        allow create, update: if isOwner(userId) && validState(request.resource.data);
-        allow delete: if isOwner(userId);
+        allow get: if isOwner(userId) || isAdminUser();
+        allow create: if (isOwner(userId) || isAdminUser()) && validState(request.resource.data);
+        allow update: if (isOwner(userId) || isAdminUser()) && validState(request.resource.data);
+        allow delete: if isOwner(userId) || isAdminUser();
       }
     }
 
+    // ---------- Admin records ----------
     match /app_admins/{adminId} {
-      allow read: if isMainAdmin() || isListedAdmin();
-      allow create, update, delete: if isMainAdmin();
+      allow get: if signedIn() && (adminId == request.auth.uid || (request.auth.token.email != null && adminId == request.auth.token.email) || isAdminUser());
+      allow list: if isAdminUser();
+      allow create, update, delete: if isMainAdmin() || (request.auth.token.admin == true);
     }
 
-    // Public read access for directory and emergency resources.
+    // ---------- Public directories ----------
     match /doctors/{docId} {
       allow read: if true;
-      allow write: if isAdminUser();
+      allow create, update, delete: if isAdminUser();
+    }
+
+    match /doctor_categories/{catId} {
+      allow read: if true;
+      allow create, update, delete: if isAdminUser();
     }
 
     match /emergency_resources/{resId} {
       allow read: if true;
-      allow write: if isAdminUser();
+      allow create, update, delete: if isAdminUser();
     }
 
+    // ---------- Blood donors ----------
     match /blood_donors/{donorId} {
       allow read: if true;
-      allow write: if isAdminUser();
+      allow create, update, delete: if isAdminUser() || (signedIn() && donorId == request.auth.uid);
+    }
+
+    // ---------- Doctor appointments ----------
+    match /doctor_appointments/{appointmentId} {
+      // single-document read: allow if involved or admin
+      allow get: if signedIn() && (
+        (resource.data.patientUid == request.auth.uid)
+        || (resource.data.doctorUserId == request.auth.uid)
+        || isAdminUser()
+      );
+
+      // list queries: admin or limited queries by patientUid or doctorUserId
+      allow list: if isAdminUser()
+        || (signedIn() &&
+            (
+              // require the client to query for their own appointments
+              (request.query.where('patientUid', '==', request.auth.uid))
+              || (request.query.where('doctorUserId', '==', request.auth.uid))
+            )
+        );
+
+      allow create: if signedIn()
+        && request.resource.data.patientUid == request.auth.uid
+        && request.resource.data.doctorId is string
+        && request.resource.data.doctorUserId is string
+        && request.resource.data.patientName is string
+        && request.resource.data.chamberName is string
+        && request.resource.data.appointmentAt is string;
+
+      allow update: if signedIn() && (
+        (resource.data.patientUid == request.auth.uid)
+        || (resource.data.doctorUserId == request.auth.uid)
+        || isAdminUser()
+      )
+      && request.resource.data.patientUid == resource.data.patientUid
+      && request.resource.data.doctorUserId == resource.data.doctorUserId;
+
+      allow delete: if isAdminUser();
+    }
+
+    // ---------- Doctor ratings ----------
+    match /doctor_ratings/{ratingId} {
+      allow read: if true;
+      allow create, update: if signedIn()
+        && request.resource.data.patientUid == request.auth.uid
+        && request.resource.data.doctorId is string
+        && request.resource.data.rating is number
+        && request.resource.data.rating >= 1
+        && request.resource.data.rating <= 5;
+      allow delete: if isAdminUser();
+    }
+
+    // ---------- Final deny (fallback) ----------
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

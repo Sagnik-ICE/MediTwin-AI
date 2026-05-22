@@ -53,7 +53,9 @@ class AppState extends ChangeNotifier {
   bool darkMode = false;
   bool loggedIn = false;
   bool isAdmin = false;
+  bool get isDoctor => profile.accountType.toLowerCase() == 'doctor';
   bool get isMainAdmin => _authService.currentUserEmail?.toLowerCase() == mainAdminEmail.toLowerCase();
+  String? get currentUserId => _authService.currentUserId;
   String? get currentUserEmail => _authService.currentUserEmail;
   bool onboardingCompleted = false;
   bool isChatLoading = false;
@@ -432,7 +434,22 @@ class AppState extends ChangeNotifier {
 
 
   Future<void> completeOnboarding(UserProfile value) async {
-    profile = value;
+    profile = value.accountType.isEmpty ? value : UserProfile(
+      name: value.name,
+      email: value.email,
+      age: value.age,
+      gender: value.gender,
+      bloodGroup: value.bloodGroup,
+      isBloodDonor: value.isBloodDonor,
+      donorContactInfo: value.donorContactInfo,
+      heightCm: value.heightCm,
+      weightKg: value.weightKg,
+      healthGoals: value.healthGoals,
+      contactInfo: value.contactInfo,
+      division: value.division,
+      district: value.district,
+      accountType: value.accountType.isEmpty ? 'patient' : value.accountType,
+    );
     onboardingCompleted = true;
     await _syncCloudStateIfAvailable();
     notifyListeners();
@@ -485,7 +502,6 @@ class AppState extends ChangeNotifier {
     try {
       final cloudState = await _firestoreService.loadUserState(userId);
       if (cloudState == null) {
-        await _syncCloudStateIfAvailable();
         return;
       }
 
@@ -494,6 +510,9 @@ class AppState extends ChangeNotifier {
       chatSessions = cloudState.chatSessions;
       activeChatSessionId = cloudState.activeChatSessionId ?? (chatSessions.isNotEmpty ? chatSessions.first.id : null);
       onboardingCompleted = cloudState.onboardingCompleted;
+      if (!onboardingCompleted && profile.name.trim().isNotEmpty && profile.age > 0 && profile.gender.trim().isNotEmpty && profile.bloodGroup.trim().isNotEmpty) {
+        onboardingCompleted = true;
+      }
     } catch (e, st) {
       DebugLogger.warning('Failed to pull cloud state', e);
       DebugLogger.debug(st.toString());
@@ -557,10 +576,12 @@ class AppState extends ChangeNotifier {
     return _firestoreService.loadAdmins();
   }
 
-  Future<String?> addAdmin({required String email, required String displayName, required String password}) async {
+  Future<String?> addAdmin({required UserProfile profile, required String password}) async {
     if (!isMainAdmin) {
       return 'Only the main admin can add new admins.';
     }
+    final email = profile.email.trim();
+    final displayName = profile.name.trim();
     final uid = await _authService.provisionUserAccount(email: email, password: password);
     if (uid == null || uid.isEmpty) {
       return 'Failed to create the admin account.';
@@ -568,12 +589,93 @@ class AppState extends ChangeNotifier {
     if (uid.contains('failed') || uid.contains('enter a valid') || uid.contains('password') || uid.contains('email')) {
       return uid;
     }
+    final adminProfile = UserProfile(
+      name: displayName,
+      email: email,
+      age: profile.age,
+      gender: profile.gender,
+      bloodGroup: profile.bloodGroup,
+      isBloodDonor: false,
+      donorContactInfo: '',
+      heightCm: profile.heightCm,
+      weightKg: profile.weightKg,
+      healthGoals: profile.healthGoals,
+      contactInfo: profile.contactInfo,
+      division: profile.division,
+      district: profile.district,
+      accountType: 'admin',
+    );
     await _firestoreService.saveAdmin(
       email: email,
       displayName: displayName,
       addedBy: _authService.currentUserId ?? '',
       uid: uid,
     );
+    await _firestoreService.saveUserState(
+      userId: uid,
+      profile: adminProfile,
+      logs: const [],
+      chatSessions: const [],
+      activeChatSessionId: null,
+      onboardingCompleted: true,
+    );
+    await _refreshAdminStatus();
+    return null;
+  }
+
+  Future<String?> addDoctorAccount({
+    required String email,
+    required String password,
+    required String displayName,
+    required Map<String, dynamic> doctorData,
+  }) async {
+    if (!isAdmin) {
+      return 'Only an admin can add doctor accounts.';
+    }
+
+    final uid = await _authService.provisionUserAccount(email: email, password: password);
+    if (uid == null || uid.isEmpty) {
+      return 'Failed to create the doctor account.';
+    }
+
+    final profile = UserProfile(
+      name: displayName,
+      email: email,
+      age: (doctorData['age'] as num?)?.toInt() ?? 0,
+      gender: (doctorData['gender'] as String?) ?? '',
+      bloodGroup: (doctorData['bloodGroup'] as String?) ?? '',
+      isBloodDonor: false,
+      donorContactInfo: '',
+      heightCm: (doctorData['heightCm'] as num?)?.toDouble() ?? 0,
+      weightKg: (doctorData['weightKg'] as num?)?.toDouble() ?? 0,
+      healthGoals: (doctorData['specialtySummary'] as String?) ?? '',
+      contactInfo: (doctorData['contactInfo'] as String?) ?? '',
+      division: (doctorData['division'] as String?) ?? '',
+      district: (doctorData['district'] as String?) ?? '',
+      accountType: 'doctor',
+    );
+
+    await _firestoreService.saveUserState(
+      userId: uid,
+      profile: profile,
+      logs: const [],
+      chatSessions: const [],
+      activeChatSessionId: null,
+      onboardingCompleted: true,
+    );
+
+    await _firestoreService.saveDoctor({
+      ...doctorData,
+      'doctorUserId': uid,
+      'doctorEmail': email.toLowerCase(),
+      'displayName': displayName,
+      'rating': (doctorData['rating'] as num?)?.toDouble() ?? 0,
+      'ratingCount': 0,
+      'hasDedicatedProfile': true,
+      'acceptsAppointments': true,
+      'updatedAt': DateTime.now().toIso8601String(),
+    });
+
     await _refreshAdminStatus();
     return null;
   }
@@ -605,6 +707,24 @@ class AppState extends ChangeNotifier {
       return;
     }
 
+    final hasMeaningfulProfile = profile.name.trim().isNotEmpty ||
+        profile.email.trim().isNotEmpty ||
+        profile.gender.trim().isNotEmpty ||
+        profile.bloodGroup.trim().isNotEmpty ||
+        profile.isBloodDonor ||
+        profile.donorContactInfo.trim().isNotEmpty ||
+        profile.heightCm > 0 ||
+        profile.weightKg > 0 ||
+        profile.healthGoals.trim().isNotEmpty ||
+        profile.contactInfo.trim().isNotEmpty ||
+        profile.division.trim().isNotEmpty ||
+        profile.district.trim().isNotEmpty ||
+        profile.accountType.trim().isNotEmpty;
+
+    if (!onboardingCompleted && !hasMeaningfulProfile && logs.isEmpty && chatSessions.isEmpty) {
+      return;
+    }
+
     try {
       await _firestoreService.saveUserState(
         userId: userId,
@@ -614,9 +734,15 @@ class AppState extends ChangeNotifier {
         activeChatSessionId: activeChatSessionId,
         onboardingCompleted: onboardingCompleted,
       );
-      await _syncDonorRecordIfNeeded();
     } catch (e, st) {
       DebugLogger.warning('Failed to sync cloud state', e);
+      DebugLogger.debug(st.toString());
+    }
+
+    try {
+      await _syncDonorRecordIfNeeded();
+    } catch (e, st) {
+      DebugLogger.warning('Failed to sync donor record', e);
       DebugLogger.debug(st.toString());
     }
   }
@@ -641,8 +767,10 @@ class AppState extends ChangeNotifier {
       'id': userId,
       'name': profile.name,
       'email': email,
-      'contactInfo': profile.donorContactInfo,
+      'contactInfo': profile.contactInfo.isNotEmpty ? profile.contactInfo : profile.donorContactInfo,
       'bloodGroup': profile.bloodGroup,
+      'division': profile.division,
+      'district': profile.district,
       'gender': profile.gender,
       'age': profile.age,
       'heightCm': profile.heightCm,
@@ -650,7 +778,7 @@ class AppState extends ChangeNotifier {
       'healthGoals': profile.healthGoals,
       'knownConditions': profile.knownConditions,
       'isBloodDonor': true,
-      'source': 'signup',
+      'source': 'profile',
     });
   }
 

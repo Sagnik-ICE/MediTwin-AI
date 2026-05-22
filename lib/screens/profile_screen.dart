@@ -1,8 +1,12 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../constants/bd_locations.dart';
 import '../models/user_profile.dart';
 import '../providers/app_state.dart';
+import 'auth_screen.dart';
 import '../widgets/glass_card.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -19,13 +23,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _heightController = TextEditingController();
   final _weightController = TextEditingController();
   final _goalsController = TextEditingController();
-  final _conditionsController = TextEditingController();
-  final _donorContactController = TextEditingController();
+  final _contactController = TextEditingController();
   bool _isEditing = false;
   bool _saving = false;
   bool _changingPassword = false;
-  String _gender = 'Male';
-  String _bloodGroup = 'O+';
+  String _gender = '';
+  String _bloodGroup = '';
+  String _division = '';
+  String _district = '';
   bool _isBloodDonor = false;
   bool _loaded = false;
 
@@ -44,21 +49,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _heightController.dispose();
     _weightController.dispose();
     _goalsController.dispose();
-    _conditionsController.dispose();
-    _donorContactController.dispose();
+    _contactController.dispose();
     super.dispose();
   }
 
   void _syncFromProfile(UserProfile p) {
     _nameController.text = p.name;
     _ageController.text = p.age > 0 ? p.age.toString() : '';
-    _gender = p.gender == 'Female' ? 'Female' : 'Male';
-    _bloodGroup = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].contains(p.bloodGroup) ? p.bloodGroup : 'O+';
+    _gender = ['Male', 'Female'].contains(p.gender) ? p.gender : '';
+    _bloodGroup = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].contains(p.bloodGroup) ? p.bloodGroup : '';
     _heightController.text = p.heightCm > 0 ? p.heightCm.toStringAsFixed(0) : '';
     _weightController.text = p.weightKg > 0 ? p.weightKg.toStringAsFixed(1) : '';
     _goalsController.text = p.healthGoals;
-    _conditionsController.text = p.knownConditions;
-    _donorContactController.text = p.donorContactInfo;
+    _contactController.text = p.contactInfo;
+    _division = BdLocations.divisions.contains(p.division) ? p.division : '';
+    _district = BdLocations.districts.contains(p.district) ? p.district : '';
     _isBloodDonor = p.isBloodDonor;
   }
 
@@ -67,6 +72,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() => _saving = true);
 
     final appState = context.read<AppState>();
+    final messenger = ScaffoldMessenger.of(context);
     final profile = UserProfile(
       name: _nameController.text.trim(),
       email: appState.currentUserEmail ?? appState.profile.email,
@@ -74,11 +80,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
       gender: _gender,
       bloodGroup: _bloodGroup,
       isBloodDonor: _isBloodDonor,
-      donorContactInfo: _isBloodDonor ? _donorContactController.text.trim() : '',
+      donorContactInfo: _isBloodDonor ? _contactController.text.trim() : '',
       heightCm: double.tryParse(_heightController.text.trim()) ?? 0,
       weightKg: double.tryParse(_weightController.text.trim()) ?? 0,
       healthGoals: _goalsController.text.trim(),
-      knownConditions: _conditionsController.text.trim(),
+      contactInfo: _contactController.text.trim(),
+      division: _division,
+      district: _district,
     );
 
     await appState.updateProfile(profile);
@@ -87,12 +95,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _saving = false;
       _isEditing = false;
     });
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile updated.')));
+    messenger.showSnackBar(const SnackBar(content: Text('Profile updated.')));
   }
 
   Future<void> _changePassword() async {
     final currentController = TextEditingController();
     final newController = TextEditingController();
+    final messenger = ScaffoldMessenger.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -124,7 +133,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
     if (!mounted) return;
     setState(() => _changingPassword = false);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error ?? 'Password updated.')));
+    messenger.showSnackBar(SnackBar(content: Text(error ?? 'Password updated.')));
   }
 
   @override
@@ -135,22 +144,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return Scaffold(
           appBar: AppBar(
             title: const Text('Profile'),
-            actions: [
-              TextButton.icon(
-                onPressed: _saving
-                    ? null
-                    : () {
-                        if (_isEditing) {
-                          _saveProfile();
-                        } else {
-                          _syncFromProfile(p);
-                          setState(() => _isEditing = true);
-                        }
-                      },
-                icon: Icon(_isEditing ? Icons.save_rounded : Icons.edit_rounded),
-                label: Text(_isEditing ? 'Save' : 'Update profile'),
-              ),
-            ],
           ),
           body: ListView(
             padding: const EdgeInsets.all(16),
@@ -167,11 +160,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     _row('Gender', p.gender.isEmpty ? '-' : p.gender),
                     _row('Blood group', p.bloodGroup.isEmpty ? '-' : p.bloodGroup),
                     _row('Donor', p.isBloodDonor ? 'Yes' : 'No'),
-                    if (p.isBloodDonor) _row('Donor contact', p.donorContactInfo.isEmpty ? '-' : p.donorContactInfo),
+                    _row('Contact', p.contactInfo.isEmpty ? '-' : p.contactInfo),
+                    _row('Division', p.division.isEmpty ? '-' : p.division),
+                    _row('District', p.district.isEmpty ? '-' : p.district),
                     _row('Height', p.heightCm > 0 ? '${p.heightCm.toStringAsFixed(0)} cm' : '-'),
                     _row('Weight', p.weightKg > 0 ? '${p.weightKg.toStringAsFixed(1)} kg' : '-'),
                     _row('Goals', p.healthGoals.isEmpty ? '-' : p.healthGoals),
-                    _row('Conditions', p.knownConditions.isEmpty ? '-' : p.knownConditions),
                   ],
                 ),
               ),
@@ -196,7 +190,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 label: 'Gender',
                                 value: _gender,
                                 items: const ['Male', 'Female'],
-                                onChanged: (value) => setState(() => _gender = value ?? 'Male'),
+                                onChanged: (value) => setState(() => _gender = value ?? ''),
                               ),
                             ),
                           ],
@@ -205,16 +199,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           label: 'Blood group',
                           value: _bloodGroup,
                           items: const ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'],
-                          onChanged: (value) => setState(() => _bloodGroup = value ?? 'O+'),
+                          onChanged: (value) => setState(() => _bloodGroup = value ?? ''),
                         ),
                         SwitchListTile(
                           contentPadding: EdgeInsets.zero,
                           title: const Text('Willing to be a blood donor'),
-                          subtitle: const Text('Store donor contact info for emergencies.'),
+                          subtitle: const Text('Your contact will be reused if you opt in as a donor.'),
                           value: _isBloodDonor,
-                          onChanged: (value) => setState(() => _isBloodDonor = value),
+                          onChanged: (value) => setState(() {
+                            _isBloodDonor = value;
+                            if (!value) {
+                              _division = '';
+                              _district = '';
+                            }
+                          }),
                         ),
-                        if (_isBloodDonor) _field(_donorContactController, 'Donor contact info', validatorMessage: 'Enter contact info for donors'),
+                        _field(_contactController, 'Contact', validatorMessage: 'Enter a contact number or email'),
                         Row(
                           children: [
                             Expanded(child: _field(_heightController, 'Height (cm)', number: true)),
@@ -223,10 +223,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ],
                         ),
                         _field(_goalsController, 'Health goals', maxLines: 2),
-                        _field(_conditionsController, 'Known conditions', maxLines: 2),
+                        if (_isBloodDonor) ...[
+                          _dropdownField(
+                            label: 'Division',
+                            value: _division,
+                            items: BdLocations.divisions,
+                            onChanged: (value) => setState(() => _division = value ?? ''),
+                          ),
+                          _dropdownField(
+                            label: 'District',
+                            value: _district,
+                            items: BdLocations.districts,
+                            onChanged: (value) => setState(() => _district = value ?? ''),
+                          ),
+                        ],
                         const SizedBox(height: 8),
-                        SizedBox(
-                          width: double.infinity,
+                        Align(
+                          alignment: Alignment.centerRight,
                           child: FilledButton.icon(
                             onPressed: _saving ? null : _saveProfile,
                             icon: _saving
@@ -259,6 +272,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         onPressed: _changingPassword ? null : _changePassword,
                         icon: const Icon(Icons.password_rounded),
                         label: Text(_changingPassword ? 'Opening...' : 'Change password'),
+                      ),
+                      const SizedBox(height: 10),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          final confirm = await showDialog<bool>(
+                            context: context,
+                            builder: (dialogContext) => AlertDialog(
+                              title: const Text('Logout?'),
+                              content: const Text('You will be returned to the sign-in screen.'),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Cancel')),
+                                FilledButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Logout')),
+                              ],
+                            ),
+                          );
+                          if (!(confirm ?? false)) return;
+                          final navigator = Navigator.of(context);
+                          await context.read<AppState>().logout();
+                          if (!mounted) return;
+                          navigator.pushAndRemoveUntil(
+                            MaterialPageRoute(builder: (_) => const AuthScreen()),
+                            (route) => false,
+                          );
+                        },
+                        icon: const Icon(Icons.logout_rounded),
+                        label: const Text('Logout'),
                       ),
                     ],
                   ),
@@ -326,7 +365,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: DropdownButtonFormField<String>(
-        value: items.contains(value) ? value : items.first,
+        initialValue: items.contains(value) ? value : null,
+        hint: Text(label),
         items: items.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
         onChanged: onChanged,
         decoration: InputDecoration(labelText: label),

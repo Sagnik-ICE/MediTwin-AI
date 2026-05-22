@@ -21,21 +21,26 @@ class HealthScoreRing extends StatelessWidget {
             strokeWidth: size >= 120 ? 10 : 8,
             backgroundColor: Colors.grey.withValues(alpha: 0.2),
           ),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '$score',
-                style: (size >= 120
-                        ? Theme.of(context).textTheme.headlineMedium
-                        : Theme.of(context).textTheme.titleLarge)
-                    ?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              Text(
-                'Health Score',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '$score',
+                  style: TextStyle(
+                    fontSize: size >= 120 ? 34 : 24,
+                    fontWeight: FontWeight.w800,
+                    height: 1.0,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Health Score',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
           ),
         ],
       ),

@@ -33,14 +33,6 @@ class SettingsScreen extends StatelessWidget {
                     },
                   ),
                   _ActionTile(
-                    icon: Icons.password_rounded,
-                    title: 'Change password',
-                    subtitle: 'Update your login password',
-                    onTap: () {
-                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ProfileScreen()));
-                    },
-                  ),
-                  _ActionTile(
                     icon: Icons.file_download_rounded,
                     title: 'Export data',
                     subtitle: 'Copy your profile and logs as JSON',
