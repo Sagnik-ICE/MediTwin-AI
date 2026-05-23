@@ -90,7 +90,7 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
       setState(() => _doctors = docs);
     } catch (e, st) {
       DebugLogger.error('Failed to load doctors', e, st);
-      if (!mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to load doctors')));
       }
     } finally {
@@ -114,17 +114,76 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
   }
 
   List<Map<String, dynamic>> get _results {
-    final q = _query.trim().toLowerCase();
+    final query = _query.trim().toLowerCase();
+    if (query.isEmpty) return _doctors;
+
+    final terms = query
+        .split(RegExp(r'\s+'))
+        .map((term) => term.trim())
+        .where((term) => term.isNotEmpty)
+        .toList();
+
     return _doctors.where((doctor) {
-      if (q.isEmpty) return true;
-      final name = (doctor['name'] ?? '').toString().toLowerCase();
-      return name.contains(q);
+      final searchable = _searchableDoctorText(doctor);
+      return terms.every(searchable.contains);
     }).toList();
+  }
+
+  String _searchableDoctorText(Map<String, dynamic> doctor) {
+    final values = <dynamic>[
+      doctor['name'],
+      doctor['displayName'],
+      doctor['category'],
+      doctor['qualification'],
+      doctor['specialtySummary'],
+      doctor['details'],
+      doctor['division'],
+      doctor['district'],
+      doctor['chamber'],
+      doctor['contact'],
+      doctor['contactInfo'],
+      doctor['doctorEmail'],
+    ];
+
+    final chambers = doctor['chambers'];
+    if (chambers is List) {
+      for (final chamber in chambers) {
+        if (chamber is Map) {
+          values.add(chamber['name']);
+          values.add(chamber['address']);
+          values.add(chamber['availableDays']);
+        } else {
+          values.add(chamber);
+        }
+      }
+    }
+
+    return values
+        .where((value) => value != null)
+        .map(_stringifySearchValue)
+        .join(' ')
+        .toLowerCase();
+  }
+
+  String _stringifySearchValue(dynamic value) {
+    if (value == null) return '';
+    if (value is List) {
+      return value.map(_stringifySearchValue).join(' ');
+    }
+    if (value is Map) {
+      return value.values.map(_stringifySearchValue).join(' ');
+    }
+    return value.toString();
   }
 
   List<String> get _allCategories {
     final merged = [..._categories, ..._dynamicCategories].toSet().toList()..sort();
     return merged;
+  }
+
+  List<String> get _districtFilterItems {
+    if (_division == 'All') return _districts;
+    return BdLocations.districtsFor(_division);
   }
 
   @override
@@ -162,7 +221,7 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
                   padding: const EdgeInsets.all(16),
                   children: [
                     Text(
-                      'Search by name, then filter by division, district, and category.',
+                      'Search by name, specialty, qualification, chamber, or location.',
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
                     const SizedBox(height: 12),
@@ -170,27 +229,52 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
                       controller: _searchController,
                       onChanged: (value) => setState(() => _query = value.trim()),
                       decoration: const InputDecoration(
-                        labelText: 'Search by name',
+                        labelText: 'Search doctors',
                         prefixIcon: Icon(Icons.search_rounded),
                       ),
                     ),
                     const SizedBox(height: 12),
                     Row(
                       children: [
-                        Expanded(child: _dropdown('Division', _division, _divisions, (value) => setState(() => _division = value ?? 'All'))),
+                        Expanded(
+                          child: _dropdown('Division', _division, _divisions, (value) async {
+                            final nextDivision = value ?? 'All';
+                            setState(() {
+                              _division = nextDivision;
+                              if (nextDivision == 'All') {
+                                // Keep existing district filter when switching to all divisions.
+                              } else if (!BdLocations.districtsFor(nextDivision).contains(_district)) {
+                                _district = 'All';
+                              }
+                            });
+                            await _reload();
+                          }),
+                        ),
                         const SizedBox(width: 10),
-                        Expanded(child: _dropdown('District', _district, _districts, (value) => setState(() => _district = value ?? 'All'))),
+                        Expanded(
+                          child: _dropdown('District', _district, _districtFilterItems, (value) async {
+                            setState(() => _district = value ?? 'All');
+                            await _reload();
+                          }),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 10),
-                    _dropdown('Category', _category, _allCategories, (value) => setState(() => _category = value ?? 'All')),
+                    _dropdown('Category', _category, _allCategories, (value) async {
+                      setState(() => _category = value ?? 'All');
+                      await _reload();
+                    }),
                     const SizedBox(height: 16),
                     ..._results.map((doctor) {
                       final id = doctor['id']?.toString() ?? '';
+                      final isDedicated = _isDedicatedDoctor(doctor);
                       return Card(
                         child: ListTile(
                           title: Text((doctor['name'] ?? '').toString(), style: const TextStyle(fontWeight: FontWeight.w700)),
-                          subtitle: Text('${doctor['category'] ?? ''} • ${doctor['division'] ?? ''} • ${doctor['district'] ?? ''}'),
+                          subtitle: Text(
+                            '${doctor['category'] ?? ''} • ${doctor['division'] ?? ''} • ${doctor['district'] ?? ''}\n${isDedicated ? 'Dedicated appointments available' : 'Listed profile only'}',
+                          ),
+                          isThreeLine: true,
                           trailing: Wrap(
                             spacing: 6,
                             children: [
@@ -222,28 +306,48 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
                               const Icon(Icons.chevron_right_rounded),
                             ],
                           ),
-                          onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => DoctorProfileScreen(
-                                doctor: doctor,
-                                allowBooking: !appState.isAdmin,
-                                canEdit: appState.isAdmin,
+                          onTap: () async {
+                            await Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => DoctorProfileScreen(
+                                  doctor: doctor,
+                                  doctorId: id,
+                                  allowBooking: !appState.isAdmin,
+                                  canEdit: appState.isAdmin,
+                                ),
                               ),
-                            ),
-                          ),
+                            );
+                            if (mounted) {
+                              await _reload();
+                            }
+                          },
                         ),
                       );
                     }),
                     if (_results.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 24),
-                        child: Center(child: Text('No doctors found.')),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 24),
+                        child: Center(
+                          child: Text(
+                            _query.trim().isEmpty
+                                ? 'No doctors found.'
+                                : 'No doctors match your search.',
+                          ),
+                        ),
                       ),
                   ],
                 ),
         );
       },
     );
+  }
+
+  bool _isDedicatedDoctor(Map<String, dynamic> doctor) {
+    final doctorUserId = (doctor['doctorUserId'] ?? '').toString().trim();
+    final hasDedicatedProfile = doctor['hasDedicatedProfile'] == true;
+    final acceptsAppointments = doctor['acceptsAppointments'] != false;
+
+    return hasDedicatedProfile && doctorUserId.isNotEmpty && acceptsAppointments;
   }
 
   Widget _dropdown(String label, String value, List<String> items, ValueChanged<String?> onChanged) {
@@ -266,7 +370,9 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
     final chambersController = TextEditingController(text: _serializeChambers(existing?['chambers']));
     final emailController = TextEditingController(text: existing?['doctorEmail']?.toString() ?? '');
     final passwordController = TextEditingController();
-    bool createDedicatedAccount = (existing?['hasDedicatedProfile'] as bool?) ?? false;
+    final existingDoctorUserId = (existing?['doctorUserId'] ?? '').toString().trim();
+    final hasDedicatedUser = existingDoctorUserId.isNotEmpty;
+    bool createDedicatedAccount = hasDedicatedUser || ((existing?['hasDedicatedProfile'] as bool?) ?? false);
     String? selectedCategory = _allCategories.contains(existing?['category']?.toString() ?? '')
       ? existing!['category'].toString()
       : null;
@@ -276,6 +382,11 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
     String? selectedDistrict = _districts.contains(existing?['district']?.toString() ?? '')
       ? existing!['district'].toString()
       : null;
+
+    List<String> dialogDistrictItems() {
+      if (selectedDivision == null || selectedDivision!.isEmpty) return _districts;
+      return BdLocations.districtsFor(selectedDivision!);
+    }
 
     final formKey = GlobalKey<FormState>();
     final saved = await showDialog<bool>(
@@ -309,13 +420,20 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
                     label: 'Division',
                     value: selectedDivision,
                     items: _divisions,
-                    onChanged: (value) => setDialogState(() => selectedDivision = value),
+                    onChanged: (value) {
+                      setDialogState(() {
+                        selectedDivision = value;
+                        if (value == null || !BdLocations.districtsFor(value).contains(selectedDistrict)) {
+                          selectedDistrict = null;
+                        }
+                      });
+                    },
                   ),
                   const SizedBox(height: 12),
                   _dropdownField(
                     label: 'District',
                     value: selectedDistrict,
-                    items: _districts,
+                    items: dialogDistrictItems(),
                     onChanged: (value) => setDialogState(() => selectedDistrict = value),
                   ),
                   const SizedBox(height: 12),
@@ -328,22 +446,28 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     value: createDedicatedAccount,
-                    onChanged: (value) => setDialogState(() => createDedicatedAccount = value),
+                    onChanged: hasDedicatedUser
+                        ? null
+                        : (value) => setDialogState(() => createDedicatedAccount = value),
                     title: const Text('Create dedicated doctor account'),
-                    subtitle: const Text('Generates a doctor login and profile page.'),
+                    subtitle: Text(
+                      hasDedicatedUser
+                          ? 'A dedicated doctor login is already linked. This doctor can receive appointments.'
+                          : 'Only dedicated doctor accounts can receive appointment requests.',
+                    ),
                   ),
-                  if (createDedicatedAccount) ...[
+                  if (createDedicatedAccount && !hasDedicatedUser) ...[
                     TextFormField(
                       controller: emailController,
                       decoration: const InputDecoration(labelText: 'Doctor email'),
-                      validator: (value) => createDedicatedAccount && (value == null || !value.contains('@')) ? 'Enter a valid email' : null,
+                      validator: (value) => createDedicatedAccount && !hasDedicatedUser && (value == null || !value.contains('@')) ? 'Enter a valid email' : null,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: passwordController,
                       obscureText: true,
                       decoration: const InputDecoration(labelText: 'Doctor password'),
-                      validator: (value) => createDedicatedAccount && (value == null || value.trim().length < 6) ? 'Password must be at least 6 characters' : null,
+                      validator: (value) => createDedicatedAccount && !hasDedicatedUser && (value == null || value.trim().length < 6) ? 'Password must be at least 6 characters' : null,
                     ),
                     const SizedBox(height: 12),
                   ],
@@ -387,6 +511,8 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
       }
       return;
     }
+    final willHaveDedicatedProfile = createDedicatedAccount || hasDedicatedUser;
+
     final payload = <String, dynamic>{
       if (existing?['id'] != null) 'id': existing!['id'],
       'name': nameController.text.trim(),
@@ -403,11 +529,10 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
       'specialtySummary': qualificationController.text.trim().isNotEmpty ? qualificationController.text.trim() : detailsController.text.trim(),
       'rating': existing?['rating'] ?? 0,
       'ratingCount': existing?['ratingCount'] ?? 0,
-      'acceptsAppointments': true,
-      'hasDedicatedProfile': createDedicatedAccount || (existing?['hasDedicatedProfile'] as bool?) == true,
+      'acceptsAppointments': willHaveDedicatedProfile,
+      'hasDedicatedProfile': willHaveDedicatedProfile,
     };
 
-    final hasDedicatedUser = (existing?['doctorUserId'] ?? '').toString().trim().isNotEmpty;
     if (createDedicatedAccount && !hasDedicatedUser) {
       final appState = context.read<AppState>();
       final messenger = ScaffoldMessenger.of(context);

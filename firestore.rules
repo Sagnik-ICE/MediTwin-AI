@@ -2,7 +2,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ---------- Auth & admin helpers ----------
+    // ---------- Auth helpers ----------
     function signedIn() {
       return request.auth != null;
     }
@@ -15,126 +15,370 @@ service cloud.firestore {
       return 'dibbay242-50-014@diu.edu.bd';
     }
 
+    function mainAdminUid() {
+      return 'fTTcLzM16dX1IFhep8URQRVmKE73';
+    }
+
     function isMainAdmin() {
-      return signedIn() && request.auth.token.email != null && request.auth.token.email == mainAdminEmail();
+      return signedIn() && (
+        request.auth.uid == mainAdminUid()
+        || (
+          request.auth.token.email != null
+          && request.auth.token.email == mainAdminEmail()
+        )
+      );
     }
 
     function isListedAdmin() {
       return signedIn() && (
         exists(/databases/$(database)/documents/app_admins/$(request.auth.uid))
-        || (request.auth.token.email != null && exists(/databases/$(database)/documents/app_admins/$(request.auth.token.email)))
+        || (
+          request.auth.token.email != null
+          && exists(/databases/$(database)/documents/app_admins/$(request.auth.token.email))
+        )
       );
     }
 
     function isAdminUser() {
       return signedIn() && (
-        (request.auth.token.admin == true)
+        request.auth.token.admin == true
         || isMainAdmin()
         || isListedAdmin()
       );
     }
 
-    // ---------- Validators (nullable-friendly) ----------
+    function isFlexibleDate(value) {
+      return value == null
+        || value is timestamp
+        || (value is string && value.size() <= 60);
+    }
+
+    // ---------- Validators ----------
+    // Kept intentionally compatible with the current Flutter app, which stores
+    // profile, logs, and chat sessions inside /users/{uid}/app/state.
     function validProfile(profile) {
       return profile is map
-        && profile.keys().hasOnly([
-          'name','email','age','gender','bloodGroup','isBloodDonor','donorContactInfo',
-          'heightCm','weightKg','healthGoals','contactInfo','knownConditions','division','district','accountType'
-        ])
-        && profile.name is string && profile.name.size() <= 80
-        && profile.email is string && profile.email.size() <= 120
-        && ((profile.age is int) || profile.age == null)
-        && (profile.age == null || (profile.age >= 0 && profile.age <= 120))
-        && profile.gender is string && profile.gender.size() <= 40
-        && profile.bloodGroup is string && profile.bloodGroup.size() <= 8
-        && profile.isBloodDonor is bool
-        && (profile.donorContactInfo == null || (profile.donorContactInfo is string && profile.donorContactInfo.size() <= 120))
-        && (profile.heightCm == null || (profile.heightCm is number && profile.heightCm >= 0 && profile.heightCm <= 300))
-        && (profile.weightKg == null || (profile.weightKg is number && profile.weightKg >= 0 && profile.weightKg <= 500))
-        && (profile.healthGoals == null || (profile.healthGoals is string && profile.healthGoals.size() <= 500))
-        && (profile.contactInfo == null || (profile.contactInfo is string && profile.contactInfo.size() <= 200))
-        && (profile.knownConditions == null || (profile.knownConditions is string && profile.knownConditions.size() <= 1000))
-        && (profile.division == null || (profile.division is string && profile.division.size() <= 50))
-        && (profile.district == null || (profile.district is string && profile.district.size() <= 50))
-        && (profile.accountType == null || (profile.accountType is string && profile.accountType.size() <= 30));
-    }
-
-    function validChatMessage(message) {
-      return message is map
-        && message.keys().hasOnly(['text','isUser','timestamp','isError'])
-        && message.text is string && message.text.size() <= 5000
-        && message.isUser is bool
-        && message.timestamp is timestamp
-        && message.isError is bool;
-    }
-
-    function validChatSession(session) {
-      return session is map
-        && session.keys().hasOnly(['id','title','createdAt','updatedAt','messages'])
-        && session.id is string && session.id.size() <= 80
-        && session.title is string && session.title.size() <= 120
-        && session.createdAt is timestamp
-        && session.updatedAt is timestamp
-        && session.messages is list && session.messages.size() <= 200
-        && session.messages.all(message, validChatMessage(message));
-    }
-
-    function validHealthLog(log) {
-      return log is map
-        && log.keys().hasOnly([
-          'date','sleepHours','waterGlasses','stressLevel','mood','exerciseMinutes','symptoms',
-          'foodQuality','weight','notes','healthScore','riskFlags','insight'
-        ])
-        && log.date is timestamp
-        && (log.sleepHours is number && log.sleepHours >= 0 && log.sleepHours <= 24)
-        && (log.waterGlasses is int && log.waterGlasses >= 0 && log.waterGlasses <= 100)
-        && (log.stressLevel is int && log.stressLevel >= 0 && log.stressLevel <= 10)
-        && (log.mood is string && log.mood.size() <= 50)
-        && (log.exerciseMinutes is int && log.exerciseMinutes >= 0 && log.exerciseMinutes <= 1440)
-        && (log.symptoms is list && log.symptoms.size() <= 20)
-        && (log.foodQuality is string && log.foodQuality.size() <= 50)
-        && (log.weight is number && log.weight >= 0 && log.weight <= 500)
-        && (log.notes is string && log.notes.size() <= 5000)
-        && (log.healthScore is int && log.healthScore >= 0 && log.healthScore <= 100)
-        && (log.riskFlags is list && log.riskFlags.size() <= 20)
-        && (log.insight is string && log.insight.size() <= 5000);
+        && (!('name' in profile) || (profile.name is string && profile.name.size() <= 120))
+        && (!('email' in profile) || (profile.email is string && profile.email.size() <= 160))
+        && (!('age' in profile) || (profile.age is number && profile.age >= 0 && profile.age <= 130))
+        && (!('gender' in profile) || (profile.gender is string && profile.gender.size() <= 60))
+        && (!('bloodGroup' in profile) || (profile.bloodGroup is string && profile.bloodGroup.size() <= 20))
+        && (!('isBloodDonor' in profile) || profile.isBloodDonor is bool)
+        && (!('donorContactInfo' in profile) || (profile.donorContactInfo is string && profile.donorContactInfo.size() <= 300))
+        && (!('heightCm' in profile) || (profile.heightCm is number && profile.heightCm >= 0 && profile.heightCm <= 300))
+        && (!('weightKg' in profile) || (profile.weightKg is number && profile.weightKg >= 0 && profile.weightKg <= 500))
+        && (!('healthGoals' in profile) || (profile.healthGoals is string && profile.healthGoals.size() <= 1000))
+        && (!('contactInfo' in profile) || (profile.contactInfo is string && profile.contactInfo.size() <= 1000))
+        && (!('knownConditions' in profile) || (profile.knownConditions is string && profile.knownConditions.size() <= 1000))
+        && (!('division' in profile) || (profile.division is string && profile.division.size() <= 80))
+        && (!('district' in profile) || (profile.district is string && profile.district.size() <= 80))
+        && (!('accountType' in profile) || (
+          profile.accountType is string
+          && (
+            profile.accountType == 'patient'
+            || profile.accountType == 'doctor'
+            || profile.accountType == 'admin'
+          )
+        ));
     }
 
     function validState(data) {
       return data is map
-        && data.keys().hasOnly(['profile','logs','chatSessions','chatMessages','activeChatSessionId','onboardingCompleted','updatedAt'])
+        && data.profile is map
         && validProfile(data.profile)
-        && ((data.logs is list) && data.logs.size() <= 500 && data.logs.all(l, validHealthLog(l)))
-        && ((data.chatSessions is list) && data.chatSessions.size() <= 20 && data.chatSessions.all(s, validChatSession(s)))
-        && ((data.chatMessages == null) || (data.chatMessages is list && data.chatMessages.size() <= 200 && data.chatMessages.all(m, validChatMessage(m))))
-        && ((data.activeChatSessionId == null) || data.activeChatSessionId is string)
-        && data.onboardingCompleted is bool
-        && data.updatedAt is timestamp;
+        && (!('logs' in data) || (data.logs is list && data.logs.size() <= 500))
+        && (!('chatSessions' in data) || (data.chatSessions is list && data.chatSessions.size() <= 50))
+        && (!('chatMessages' in data) || (data.chatMessages is list && data.chatMessages.size() <= 500))
+        && (!('activeChatSessionId' in data) || data.activeChatSessionId == null || data.activeChatSessionId is string)
+        && (!('onboardingCompleted' in data) || data.onboardingCompleted is bool)
+        && (!('updatedAt' in data) || isFlexibleDate(data.updatedAt));
     }
 
-    // ---------- Users' app state ----------
+    function validAdminRecord(data) {
+      return data is map
+        && data.email is string
+        && data.email.size() <= 160
+        && data.displayName is string
+        && data.displayName.size() <= 120
+        && data.addedBy is string
+        && data.addedBy.size() <= 160
+        && (!('uid' in data) || data.uid == null || (data.uid is string && data.uid.size() <= 160))
+        && (!('createdAt' in data) || isFlexibleDate(data.createdAt))
+        && (!('updatedAt' in data) || isFlexibleDate(data.updatedAt));
+    }
+
+    function validDoctorRecord(data) {
+      return data is map
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 160
+        && (!('category' in data) || (data.category is string && data.category.size() <= 120))
+        && (!('division' in data) || (data.division is string && data.division.size() <= 100))
+        && (!('district' in data) || (data.district is string && data.district.size() <= 100))
+        && (!('doctorUserId' in data) || data.doctorUserId == null || (data.doctorUserId is string && data.doctorUserId.size() <= 160))
+        && (!('doctorEmail' in data) || data.doctorEmail == null || (data.doctorEmail is string && data.doctorEmail.size() <= 160))
+        && (!('displayName' in data) || data.displayName == null || (data.displayName is string && data.displayName.size() <= 160))
+        && (!('authEmail' in data) || data.authEmail == null || (data.authEmail is string && data.authEmail.size() <= 160))
+        && (!('qualification' in data) || data.qualification == null || (data.qualification is string && data.qualification.size() <= 1000))
+        && (!('rating' in data) || (data.rating is number && data.rating >= 0 && data.rating <= 5))
+        && (!('ratingCount' in data) || (data.ratingCount is number && data.ratingCount >= 0))
+        && (!('hasDedicatedProfile' in data) || data.hasDedicatedProfile is bool)
+        && (!('acceptsAppointments' in data) || data.acceptsAppointments is bool)
+        && (!('updatedAt' in data) || isFlexibleDate(data.updatedAt));
+    }
+
+    function isBookableDedicatedDoctor(data) {
+      return data.doctorId is string
+        && data.doctorId.size() > 0
+        && exists(/databases/$(database)/documents/doctors/$(data.doctorId))
+        && get(/databases/$(database)/documents/doctors/$(data.doctorId)).data.hasDedicatedProfile == true
+        && get(/databases/$(database)/documents/doctors/$(data.doctorId)).data.acceptsAppointments != false
+        && get(/databases/$(database)/documents/doctors/$(data.doctorId)).data.doctorUserId is string
+        && get(/databases/$(database)/documents/doctors/$(data.doctorId)).data.doctorUserId.size() > 0
+        && get(/databases/$(database)/documents/doctors/$(data.doctorId)).data.doctorUserId == data.doctorUserId;
+    }
+
+    function validAppointmentCreate(data) {
+      return signedIn()
+        && data is map
+        && data.patientUid == request.auth.uid
+        && data.doctorId is string
+        && data.doctorId.size() > 0
+        && data.doctorUserId is string
+        && data.doctorUserId.size() > 0
+        && isBookableDedicatedDoctor(data)
+        && data.patientName is string
+        && data.patientName.size() > 0
+        && data.patientName.size() <= 160
+        && (!('appointmentAt' in data) || isFlexibleDate(data.appointmentAt))
+        && (!('status' in data) || (
+          data.status == 'pending'
+          || data.status == 'confirmed'
+          || data.status == 'cancelled'
+          || data.status == 'completed'
+        ))
+        && (!('reason' in data) || (data.reason is string && data.reason.size() <= 1000));
+    }
+
+    function validAppointmentStatus(status) {
+      return status == 'pending'
+        || status == 'confirmed'
+        || status == 'cancelled'
+        || status == 'completed';
+    }
+
+    function appointmentIdentityUnchanged() {
+      return request.resource.data.patientUid == resource.data.patientUid
+        && request.resource.data.doctorUserId == resource.data.doctorUserId
+        && request.resource.data.doctorId == resource.data.doctorId;
+    }
+
+    function appointmentStatusOnlyUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'updatedAt'
+        ])
+        && appointmentIdentityUnchanged()
+        && validAppointmentStatus(request.resource.data.status);
+    }
+
+    function doctorAppointmentStatusUpdateAllowed() {
+      return signedIn()
+        && (isAdminUser() || resource.data.doctorUserId == request.auth.uid)
+        && appointmentStatusOnlyUpdate();
+    }
+
+    function patientAppointmentCancelAllowed() {
+      return signedIn()
+        && resource.data.patientUid == request.auth.uid
+        && appointmentStatusOnlyUpdate()
+        && request.resource.data.status == 'cancelled'
+        && (resource.data.status == 'pending' || resource.data.status == 'confirmed');
+    }
+
+    function validRating(data) {
+      return signedIn()
+        && data is map
+        && data.patientUid == request.auth.uid
+        && data.doctorId is string
+        && data.doctorId.size() > 0
+        && data.rating is number
+        && data.rating >= 1
+        && data.rating <= 5
+        && (!('review' in data) || (data.review is string && data.review.size() <= 1000));
+    }
+
+
+    function validDoctorSelfProfileUpdate() {
+      return signedIn()
+        && resource.data.doctorUserId == request.auth.uid
+        && request.resource.data.doctorUserId == resource.data.doctorUserId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name',
+          'displayName',
+          'doctorEmail',
+          'authEmail',
+          'contact',
+          'contactInfo',
+          'specialtySummary',
+          'details',
+          'qualification',
+          'division',
+          'district',
+          'updatedAt'
+        ])
+        && validDoctorRecord(request.resource.data);
+    }
+
+    function validDoctorRatingAggregateUpdate(docId) {
+      return signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'rating',
+          'ratingCount',
+          'updatedAt'
+        ])
+        && request.resource.data.rating is number
+        && request.resource.data.rating >= 0
+        && request.resource.data.rating <= 5
+        && request.resource.data.ratingCount is number
+        && request.resource.data.ratingCount >= 0
+        && exists(/databases/$(database)/documents/doctor_ratings/$(docId + '_' + request.auth.uid))
+        && validDoctorRecord(request.resource.data);
+    }
+
+
+
+
+    function ownerStateCreateAllowed() {
+      return signedIn()
+        && request.resource.data is map
+        && request.resource.data.profile is map
+        && (
+          !('accountType' in request.resource.data.profile)
+          || request.resource.data.profile.accountType == 'patient'
+          || request.resource.data.profile.accountType == ''
+        );
+    }
+
+    function ownerStateUpdateAllowed() {
+      return signedIn()
+        && request.resource.data is map
+        && request.resource.data.profile is map
+        && (
+          // Normal users may keep or write patient/missing only.
+          !('accountType' in request.resource.data.profile)
+          || request.resource.data.profile.accountType == 'patient'
+          || request.resource.data.profile.accountType == ''
+          // Existing doctor/admin users may preserve their current role, but cannot
+          // change it from the client-side profile update path.
+          || (
+            resource.data is map
+            && resource.data.profile is map
+            && ('accountType' in resource.data.profile)
+            && request.resource.data.profile.accountType == resource.data.profile.accountType
+          )
+        );
+    }
+
+    function validPublicDonorRecord(data) {
+      return data is map
+        && data.keys().hasOnly([
+          'id',
+          'type',
+          'name',
+          'contact',
+          'contactInfo',
+          'phone',
+          'bloodGroup',
+          'division',
+          'district',
+          'gender',
+          'note',
+          'details',
+          'isBloodDonor',
+          'source',
+          'updatedAt'
+        ])
+        && (!('id' in data) || data.id == null || (data.id is string && data.id.size() <= 160))
+        && (!('type' in data) || data.type == 'donor')
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 120
+        && (!('contact' in data) || data.contact == null || (data.contact is string && data.contact.size() <= 160))
+        && (!('contactInfo' in data) || data.contactInfo == null || (data.contactInfo is string && data.contactInfo.size() <= 160))
+        && (!('phone' in data) || data.phone == null || (data.phone is string && data.phone.size() <= 160))
+        && data.bloodGroup is string
+        && (
+          data.bloodGroup == 'A+'
+          || data.bloodGroup == 'A-'
+          || data.bloodGroup == 'B+'
+          || data.bloodGroup == 'B-'
+          || data.bloodGroup == 'AB+'
+          || data.bloodGroup == 'AB-'
+          || data.bloodGroup == 'O+'
+          || data.bloodGroup == 'O-'
+        )
+        && (!('division' in data) || data.division == null || (data.division is string && data.division.size() <= 80))
+        && (!('district' in data) || data.district == null || (data.district is string && data.district.size() <= 80))
+        && (!('gender' in data) || data.gender == null || (data.gender is string && data.gender.size() <= 60))
+        && (!('note' in data) || data.note == null || (data.note is string && data.note.size() <= 500))
+        && (!('details' in data) || data.details == null || (data.details is string && data.details.size() <= 500))
+        && (!('isBloodDonor' in data) || data.isBloodDonor is bool)
+        && (!('source' in data) || (data.source is string && data.source.size() <= 40))
+        && (!('updatedAt' in data) || isFlexibleDate(data.updatedAt));
+    }
+
+    // ---------- User app state ----------
     match /users/{userId} {
-      allow get, list: if false; // No top-level user list
+      allow get, list: if false;
 
       match /app/state {
         allow get: if isOwner(userId) || isAdminUser();
-        allow create: if (isOwner(userId) || isAdminUser()) && validState(request.resource.data);
-        allow update: if (isOwner(userId) || isAdminUser()) && validState(request.resource.data);
+
+        // Owners may only create patient app-state documents or preserve their
+        // existing role. Admins can still create doctor/admin state documents for
+        // provisioned accounts.
+        allow create: if (isOwner(userId) && ownerStateCreateAllowed()) || isAdminUser();
+
+        allow update: if (isOwner(userId) && ownerStateUpdateAllowed()) || isAdminUser();
+
         allow delete: if isOwner(userId) || isAdminUser();
       }
     }
 
     // ---------- Admin records ----------
     match /app_admins/{adminId} {
-      allow get: if signedIn() && (adminId == request.auth.uid || (request.auth.token.email != null && adminId == request.auth.token.email) || isAdminUser());
+      allow get: if signedIn() && (
+        adminId == request.auth.uid
+        || (request.auth.token.email != null && adminId == request.auth.token.email)
+        || isAdminUser()
+      );
+
       allow list: if isAdminUser();
-      allow create, update, delete: if isMainAdmin() || (request.auth.token.admin == true);
+
+      allow create, update: if (isMainAdmin() || request.auth.token.admin == true)
+        && validAdminRecord(request.resource.data);
+
+      allow delete: if isMainAdmin()
+        || request.auth.token.admin == true
+        || (
+          signedIn()
+          && (
+            adminId == request.auth.uid
+            || (request.auth.token.email != null && adminId == request.auth.token.email)
+          )
+        );
     }
 
-    // ---------- Public directories ----------
+    // ---------- Doctor directory ----------
     match /doctors/{docId} {
       allow read: if true;
-      allow create, update, delete: if isAdminUser();
+      allow create: if isAdminUser() && validDoctorRecord(request.resource.data);
+      allow update: if (isAdminUser() && validDoctorRecord(request.resource.data))
+        || validDoctorSelfProfileUpdate()
+        || validDoctorRatingAggregateUpdate(docId);
+      allow delete: if isAdminUser()
+        || (signedIn() && resource.data.doctorUserId == request.auth.uid);
     }
 
     match /doctor_categories/{catId} {
@@ -142,6 +386,7 @@ service cloud.firestore {
       allow create, update, delete: if isAdminUser();
     }
 
+    // ---------- Emergency resources ----------
     match /emergency_resources/{resId} {
       allow read: if true;
       allow create, update, delete: if isAdminUser();
@@ -150,60 +395,45 @@ service cloud.firestore {
     // ---------- Blood donors ----------
     match /blood_donors/{donorId} {
       allow read: if true;
-      allow create, update, delete: if isAdminUser() || (signedIn() && donorId == request.auth.uid);
+      allow create, update: if (isAdminUser() || isOwner(donorId))
+        && validPublicDonorRecord(request.resource.data);
+      allow delete: if isAdminUser() || isOwner(donorId);
     }
 
     // ---------- Doctor appointments ----------
     match /doctor_appointments/{appointmentId} {
-      // single-document read: allow if involved or admin
       allow get: if signedIn() && (
-        (resource.data.patientUid == request.auth.uid)
-        || (resource.data.doctorUserId == request.auth.uid)
-        || isAdminUser()
+        isAdminUser()
+        || resource.data.patientUid == request.auth.uid
+        || resource.data.doctorUserId == request.auth.uid
       );
 
-      // list queries: admin or limited queries by patientUid or doctorUserId
-      allow list: if isAdminUser()
-        || (signedIn() &&
-            (
-              // require the client to query for their own appointments
-              (request.query.where('patientUid', '==', request.auth.uid))
-              || (request.query.where('doctorUserId', '==', request.auth.uid))
-            )
-        );
+      allow list: if signedIn();
 
-      allow create: if signedIn()
-        && request.resource.data.patientUid == request.auth.uid
-        && request.resource.data.doctorId is string
-        && request.resource.data.doctorUserId is string
-        && request.resource.data.patientName is string
-        && request.resource.data.chamberName is string
-        && request.resource.data.appointmentAt is string;
+      allow create: if validAppointmentCreate(request.resource.data);
 
-      allow update: if signedIn() && (
-        (resource.data.patientUid == request.auth.uid)
-        || (resource.data.doctorUserId == request.auth.uid)
-        || isAdminUser()
-      )
-      && request.resource.data.patientUid == resource.data.patientUid
-      && request.resource.data.doctorUserId == resource.data.doctorUserId;
+      allow update: if doctorAppointmentStatusUpdateAllowed()
+        || patientAppointmentCancelAllowed();
 
-      allow delete: if isAdminUser();
+      allow delete: if signedIn() && (
+        isAdminUser()
+        || resource.data.patientUid == request.auth.uid
+        || resource.data.doctorUserId == request.auth.uid
+      );
     }
 
     // ---------- Doctor ratings ----------
     match /doctor_ratings/{ratingId} {
       allow read: if true;
-      allow create, update: if signedIn()
-        && request.resource.data.patientUid == request.auth.uid
-        && request.resource.data.doctorId is string
-        && request.resource.data.rating is number
-        && request.resource.data.rating >= 1
-        && request.resource.data.rating <= 5;
-      allow delete: if isAdminUser();
+      allow create, update: if validRating(request.resource.data);
+      allow delete: if signedIn() && (
+        isAdminUser()
+        || resource.data.patientUid == request.auth.uid
+        || resource.data.doctorUserId == request.auth.uid
+      );
     }
 
-    // ---------- Final deny (fallback) ----------
+    // ---------- Final deny ----------
     match /{document=**} {
       allow read, write: if false;
     }

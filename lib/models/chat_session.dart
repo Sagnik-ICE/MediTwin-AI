@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'chat_message.dart';
 
 class ChatSession {
@@ -41,16 +43,40 @@ class ChatSession {
   }
 
   factory ChatSession.fromMap(Map<String, dynamic> map) {
-    final rawMessages = (map['messages'] as List<dynamic>? ?? const []);
+    final rawMessages = map['messages'];
+    final messages = rawMessages is List
+        ? rawMessages
+            .whereType<Map>()
+            .map((item) => ChatMessage.fromMap(Map<String, dynamic>.from(item)))
+            .toList()
+        : <ChatMessage>[];
+
     return ChatSession(
-      id: (map['id'] as String?) ?? '',
-      title: (map['title'] as String?) ?? 'New chat',
-      createdAt: DateTime.tryParse((map['createdAt'] as String?) ?? '') ?? DateTime.now(),
-      updatedAt: DateTime.tryParse((map['updatedAt'] as String?) ?? '') ?? DateTime.now(),
-      messages: rawMessages
-          .whereType<Map<String, dynamic>>()
-          .map(ChatMessage.fromMap)
-          .toList(),
+      id: _stringFromValue(map['id']),
+      title: _stringFromValue(map['title'], fallback: 'New chat'),
+      createdAt: _dateFromValue(map['createdAt']),
+      updatedAt: _dateFromValue(map['updatedAt']),
+      messages: messages,
     );
+  }
+
+  static DateTime _dateFromValue(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is String) return DateTime.tryParse(value) ?? DateTime.now();
+    if (value is int) {
+      try {
+        return DateTime.fromMillisecondsSinceEpoch(value);
+      } catch (_) {
+        return DateTime.now();
+      }
+    }
+    return DateTime.now();
+  }
+
+  static String _stringFromValue(dynamic value, {String fallback = ''}) {
+    if (value == null) return fallback;
+    final text = value.toString();
+    return text.isEmpty ? fallback : text;
   }
 }

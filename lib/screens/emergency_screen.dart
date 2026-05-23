@@ -80,13 +80,43 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     }
   }
 
+  List<String> get _availableDistricts {
+    if (_division == 'All') return _districts;
+    final filtered = BdLocations.districtsFor(_division);
+    return filtered.isEmpty ? _districts : filtered;
+  }
+
   List<Map<String, dynamic>> get _filteredItems {
-    final q = _query.trim().toLowerCase();
+    final q = _normalizeSearch(_query);
     return _items.where((item) {
       if (q.isEmpty) return true;
-      final name = (item['name'] ?? '').toString().toLowerCase();
-      return name.contains(q);
+      return _searchableText(item).contains(q);
     }).toList();
+  }
+
+  String _normalizeSearch(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r"[^\p{L}\p{N}\s+.-]+", unicode: true), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  String _searchableText(Map<String, dynamic> item) {
+    final fields = <Object?>[
+      item['name'],
+      item['type'],
+      item['division'],
+      item['district'],
+      item['bloodGroup'],
+      item['contact'],
+      item['phone'],
+      item['note'],
+      item['details'],
+      item['address'],
+      item['location'],
+    ];
+    return _normalizeSearch(fields.whereType<Object>().map((value) => value.toString()).join(' '));
   }
 
   @override
@@ -162,14 +192,44 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                     TextField(
                       controller: _searchController,
                       onChanged: (value) => setState(() => _query = value.trim()),
-                      decoration: const InputDecoration(labelText: 'Search by name', prefixIcon: Icon(Icons.search_rounded)),
+                      decoration: const InputDecoration(
+                        labelText: 'Search',
+                        hintText: 'Name, contact, district, note, or blood group',
+                        prefixIcon: Icon(Icons.search_rounded),
+                      ),
                     ),
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        Expanded(child: _dropdown('Division', _division, _divisions, (value) async { setState(() => _division = value ?? 'All'); await _reload(); })),
+                        Expanded(
+                          child: _dropdown(
+                            'Division',
+                            _division,
+                            _divisions,
+                            (value) async {
+                              setState(() {
+                                _division = value ?? 'All';
+                                final districts = _availableDistricts;
+                                if (_district != 'All' && !districts.contains(_district)) {
+                                  _district = 'All';
+                                }
+                              });
+                              await _reload();
+                            },
+                          ),
+                        ),
                         const SizedBox(width: 10),
-                        Expanded(child: _dropdown('District', _district, _districts, (value) async { setState(() => _district = value ?? 'All'); await _reload(); })),
+                        Expanded(
+                          child: _dropdown(
+                            'District',
+                            _district,
+                            _availableDistricts,
+                            (value) async {
+                              setState(() => _district = value ?? 'All');
+                              await _reload();
+                            },
+                          ),
+                        ),
                       ],
                     ),
                     if (_selectedType == 'donor') ...[
@@ -193,7 +253,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                 return Card(
                   child: ListTile(
                     title: Text((item['name'] ?? '').toString(), style: const TextStyle(fontWeight: FontWeight.w700)),
-                    subtitle: Text('${item['division'] ?? ''} • ${item['district'] ?? ''}'),
+                    subtitle: Text(_entrySubtitle(item)),
                     trailing: isAdmin
                         ? Wrap(
                             spacing: 6,
@@ -236,6 +296,16 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                 ),
             ],
           );
+  }
+
+  String _entrySubtitle(Map<String, dynamic> item) {
+    final parts = <String>[
+      (item['division'] ?? '').toString(),
+      (item['district'] ?? '').toString(),
+      if ((item['bloodGroup'] ?? '').toString().trim().isNotEmpty) (item['bloodGroup'] ?? '').toString(),
+      if ((item['contact'] ?? item['phone'] ?? '').toString().trim().isNotEmpty) (item['contact'] ?? item['phone'] ?? '').toString(),
+    ].where((value) => value.trim().isNotEmpty).toList();
+    return parts.join(' • ');
   }
 
   Widget _tile(BuildContext context, IconData icon, String title, String subtitle, VoidCallback onTap) {
@@ -309,6 +379,12 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
       ? existing!['bloodGroup'].toString()
       : null;
 
+    List<String> dialogDistricts() {
+      if (selectedDivision == null || selectedDivision!.isEmpty) return _districts;
+      final filtered = BdLocations.districtsFor(selectedDivision!);
+      return filtered.isEmpty ? _districts : filtered;
+    }
+
     final formKey = GlobalKey<FormState>();
     final saved = await showDialog<bool>(
       context: context,
@@ -330,13 +406,19 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                     label: 'Division',
                     value: selectedDivision,
                     items: _divisions,
-                    onChanged: (value) => setDialogState(() => selectedDivision = value),
+                    onChanged: (value) => setDialogState(() {
+                      selectedDivision = value;
+                      final districts = dialogDistricts();
+                      if (selectedDistrict != null && !districts.contains(selectedDistrict)) {
+                        selectedDistrict = null;
+                      }
+                    }),
                   ),
                   const SizedBox(height: 12),
                   _dropdownField(
                     label: 'District',
                     value: selectedDistrict,
-                    items: _districts,
+                    items: dialogDistricts(),
                     onChanged: (value) => setDialogState(() => selectedDistrict = value),
                   ),
                   const SizedBox(height: 12),

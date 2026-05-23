@@ -68,7 +68,7 @@ class AiService {
     }
 
     DebugLogger.warning('All AI request attempts failed; returning fallback message');
-    return '$fallbackConnectionMessage\n\nTip: verify your endpoint and Ollama service.';
+    return '$fallbackConnectionMessage\n\nTip: make sure Ollama is running on this laptop and available at http://127.0.0.1:11434.';
   }
 
   Future<bool> testConnection(String apiUrl) async {
@@ -95,10 +95,9 @@ class AiService {
   }
 
   Uri? _normalizeEndpoint(String apiUrl) {
-    final raw = apiUrl.trim();
-    if (raw.isEmpty) {
-      return null;
-    }
+    final raw = apiUrl.trim().isEmpty
+        ? 'http://127.0.0.1:11434/api/generate'
+        : apiUrl.trim();
 
     final withScheme = raw.startsWith('http://') || raw.startsWith('https://') ? raw : 'http://$raw';
     final parsed = Uri.tryParse(withScheme);
@@ -132,7 +131,7 @@ Rules:
 - Never invent medical facts, doses, lab values, or diagnoses.
 - Keep responses practical and personalized to the user's message and memory.
 - Use simple language and short sections.
-- Do not mention being an AI model.
+- Be transparent that you are a software assistant, not a clinician, when safety or medical certainty matters.
 - For emergencies (chest pain, stroke signs, severe breathing issues, self-harm risk), instruct immediate local emergency care.
 
 Output format:
@@ -147,13 +146,26 @@ User message: $userPrompt
   }
 
   String _extractAssistantText(Map<String, dynamic> decoded) {
-    final raw = (decoded['response'] ?? decoded['message'] ?? '').toString();
-    if (raw.isNotEmpty) {
-      return raw;
+    final response = decoded['response'];
+    if (response is String && response.trim().isNotEmpty) {
+      return response.trim();
     }
 
-    if (decoded['content'] is String) {
-      return decoded['content'] as String;
+    final message = decoded['message'];
+    if (message is String && message.trim().isNotEmpty) {
+      return message.trim();
+    }
+
+    if (message is Map<String, dynamic>) {
+      final content = message['content'];
+      if (content is String && content.trim().isNotEmpty) {
+        return content.trim();
+      }
+    }
+
+    final content = decoded['content'];
+    if (content is String && content.trim().isNotEmpty) {
+      return content.trim();
     }
 
     final choices = decoded['choices'];
@@ -163,13 +175,14 @@ User message: $userPrompt
         final message = first['message'];
         if (message is Map<String, dynamic>) {
           final content = message['content'];
-          if (content is String) {
-            return content;
+          if (content is String && content.trim().isNotEmpty) {
+            return content.trim();
           }
         }
+
         final text = first['text'];
-        if (text is String) {
-          return text;
+        if (text is String && text.trim().isNotEmpty) {
+          return text.trim();
         }
       }
     }
@@ -177,7 +190,8 @@ User message: $userPrompt
     return '';
   }
 
+
       /// Public fallback message used when the AI server cannot be reached.
       static const String fallbackConnectionMessage =
-          'Unable to reach the AI assistant right now. Your health data is still saved.';
+          'Unable to reach local Ollama right now. Your health data is still saved.';
 }

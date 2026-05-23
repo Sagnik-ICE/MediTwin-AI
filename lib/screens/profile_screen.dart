@@ -73,9 +73,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     final appState = context.read<AppState>();
     final messenger = ScaffoldMessenger.of(context);
+    final currentProfile = appState.profile;
+    final preservedAccountType = currentProfile.accountType.trim().isEmpty ? 'patient' : currentProfile.accountType.trim();
+
     final profile = UserProfile(
       name: _nameController.text.trim(),
-      email: appState.currentUserEmail ?? appState.profile.email,
+      email: appState.currentUserEmail ?? currentProfile.email,
       age: int.tryParse(_ageController.text.trim()) ?? 0,
       gender: _gender,
       bloodGroup: _bloodGroup,
@@ -87,14 +90,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
       contactInfo: _contactController.text.trim(),
       division: _division,
       district: _district,
+      accountType: preservedAccountType,
     );
 
-    await appState.updateProfile(profile);
+    final error = await appState.updateProfile(profile);
     if (!mounted) return;
+
     setState(() {
       _saving = false;
-      _isEditing = false;
+      if (error == null) {
+        _isEditing = false;
+      }
     });
+
+    if (error != null) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(error),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+      return;
+    }
+
     messenger.showSnackBar(const SnackBar(content: Text('Profile updated.')));
   }
 
@@ -156,6 +174,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 12),
                     _row('Name', p.name.isEmpty ? '-' : p.name),
                     _row('Email', p.email.isEmpty ? '-' : p.email),
+                    _row('Account type', p.accountType.trim().isEmpty ? 'patient' : p.accountType),
                     _row('Age', p.age > 0 ? p.age.toString() : '-'),
                     _row('Gender', p.gender.isEmpty ? '-' : p.gender),
                     _row('Blood group', p.bloodGroup.isEmpty ? '-' : p.bloodGroup),
@@ -206,13 +225,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           title: const Text('Willing to be a blood donor'),
                           subtitle: const Text('Your contact will be reused if you opt in as a donor.'),
                           value: _isBloodDonor,
-                          onChanged: (value) => setState(() {
-                            _isBloodDonor = value;
-                            if (!value) {
-                              _division = '';
-                              _district = '';
-                            }
-                          }),
+                          onChanged: (value) => setState(() => _isBloodDonor = value),
                         ),
                         _field(_contactController, 'Contact', validatorMessage: 'Enter a contact number or email'),
                         Row(
@@ -223,20 +236,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ],
                         ),
                         _field(_goalsController, 'Health goals', maxLines: 2),
-                        if (_isBloodDonor) ...[
-                          _dropdownField(
-                            label: 'Division',
-                            value: _division,
-                            items: BdLocations.divisions,
-                            onChanged: (value) => setState(() => _division = value ?? ''),
-                          ),
-                          _dropdownField(
-                            label: 'District',
-                            value: _district,
-                            items: BdLocations.districts,
-                            onChanged: (value) => setState(() => _district = value ?? ''),
-                          ),
-                        ],
+                        _dropdownField(
+                          label: 'Division',
+                          value: _division,
+                          items: BdLocations.divisions,
+                          onChanged: (value) => setState(() => _division = value ?? ''),
+                        ),
+                        _dropdownField(
+                          label: 'District',
+                          value: _district,
+                          items: BdLocations.districts,
+                          onChanged: (value) => setState(() => _district = value ?? ''),
+                        ),
                         const SizedBox(height: 8),
                         Align(
                           alignment: Alignment.centerRight,

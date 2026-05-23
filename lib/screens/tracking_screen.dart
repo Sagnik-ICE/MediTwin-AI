@@ -25,6 +25,20 @@ class _TrackingScreenState extends State<TrackingScreen> {
   String _mood = 'neutral';
   String _foodQuality = 'average';
   final Set<String> _symptoms = {'No symptoms'};
+  bool _saving = false;
+
+  static const List<String> _availableSymptoms = [
+    'No symptoms',
+    'Headache',
+    'Fatigue',
+    'Dizziness',
+    'Nausea',
+    'Fever',
+    'Chest pain',
+    'Trouble breathing',
+    'Severe bleeding',
+    'Seizure',
+  ];
 
   @override
   void dispose() {
@@ -38,35 +52,83 @@ class _TrackingScreenState extends State<TrackingScreen> {
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) {
+    if (_saving) return;
+
+    final form = _formKey.currentState;
+    if (form == null || !form.validate()) {
       return;
     }
 
-    final appState = context.read<AppState>();
+    setState(() => _saving = true);
 
-    await appState.addHealthLog(
-      sleepHours: double.parse(_sleepController.text),
-      waterGlasses: int.parse(_waterController.text),
-      stressLevel: int.parse(_stressController.text),
-      mood: _mood,
-      exerciseMinutes: int.parse(_exerciseController.text),
-      symptoms: _symptoms.toList(),
-      foodQuality: _foodQuality,
-      weight: double.parse(_weightController.text),
-      notes: _notesController.text,
-    );
+    try {
+      final appState = context.read<AppState>();
 
-    if (!mounted) {
-      return;
+      await appState.addHealthLog(
+        sleepHours: double.parse(_sleepController.text.trim()),
+        waterGlasses: int.parse(_waterController.text.trim()),
+        stressLevel: int.parse(_stressController.text.trim()),
+        mood: _mood,
+        exerciseMinutes: int.parse(_exerciseController.text.trim()),
+        symptoms: _symptoms.toList(growable: false),
+        foodQuality: _foodQuality,
+        weight: double.parse(_weightController.text.trim()),
+        notes: _notesController.text.trim(),
+      );
+
+      if (!mounted) return;
+
+      final logs = context.read<AppState>().logs;
+      final latest = logs.isNotEmpty ? logs.first : null;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            latest == null
+                ? 'Health log saved.'
+                : 'Saved. Score: ${latest.healthScore}. ${latest.insight}',
+          ),
+        ),
+      );
+
+      widget.onSaved?.call();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not save the health log. Please try again.'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
     }
+  }
 
-    final latest = context.read<AppState>().logs.first;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Saved. Score: ${latest.healthScore}. ${latest.insight}'),
-      ),
-    );
-    widget.onSaved?.call();
+  void _toggleSymptom(String symptom, bool selected) {
+    setState(() {
+      if (symptom == 'No symptoms') {
+        if (selected) {
+          _symptoms
+            ..clear()
+            ..add('No symptoms');
+        }
+        return;
+      }
+
+      _symptoms.remove('No symptoms');
+
+      if (selected) {
+        _symptoms.add(symptom);
+      } else {
+        _symptoms.remove(symptom);
+      }
+
+      if (_symptoms.isEmpty) {
+        _symptoms.add('No symptoms');
+      }
+    });
   }
 
   @override
@@ -79,7 +141,9 @@ class _TrackingScreenState extends State<TrackingScreen> {
           children: [
             Text(
               'Enter today\'s key health details in a single quick pass.',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
             ),
             const SizedBox(height: 12),
             GlassCard(
@@ -91,17 +155,48 @@ class _TrackingScreenState extends State<TrackingScreen> {
                     _sectionTitle(context, 'Vitals'),
                     Row(
                       children: [
-                        Expanded(child: _numberField(_sleepController, 'Sleep h', min: 0, max: 24)),
+                        Expanded(
+                          child: _numberField(
+                            _sleepController,
+                            'Sleep h',
+                            min: 0,
+                            max: 24,
+                          ),
+                        ),
                         const SizedBox(width: 10),
-                        Expanded(child: _numberField(_waterController, 'Water', min: 0, max: 50, integer: true)),
+                        Expanded(
+                          child: _numberField(
+                            _waterController,
+                            'Water',
+                            min: 0,
+                            max: 50,
+                            integer: true,
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        Expanded(child: _numberField(_stressController, 'Stress', min: 1, max: 10, integer: true)),
+                        Expanded(
+                          child: _numberField(
+                            _stressController,
+                            'Stress',
+                            min: 1,
+                            max: 10,
+                            integer: true,
+                          ),
+                        ),
                         const SizedBox(width: 10),
-                        Expanded(child: _numberField(_exerciseController, 'Exercise min', min: 0, max: 1440, integer: true)),
+                        Expanded(
+                          child: _numberField(
+                            _exerciseController,
+                            'Exercise min',
+                            min: 0,
+                            max: 1440,
+                            integer: true,
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 8),
@@ -117,7 +212,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
                         DropdownMenuItem(value: 'bad', child: Text('Bad')),
                         DropdownMenuItem(value: 'very bad', child: Text('Very bad')),
                       ],
-                      onChanged: (v) => setState(() => _mood = v ?? 'neutral'),
+                      onChanged: _saving ? null : (v) => setState(() => _mood = v ?? 'neutral'),
                       decoration: const InputDecoration(labelText: 'Mood'),
                     ),
                     const SizedBox(height: 8),
@@ -128,7 +223,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
                         DropdownMenuItem(value: 'average', child: Text('Average')),
                         DropdownMenuItem(value: 'poor', child: Text('Poor')),
                       ],
-                      onChanged: (v) => setState(() => _foodQuality = v ?? 'average'),
+                      onChanged: _saving ? null : (v) => setState(() => _foodQuality = v ?? 'average'),
                       decoration: const InputDecoration(labelText: 'Food quality'),
                     ),
                     const SizedBox(height: 10),
@@ -137,44 +232,36 @@ class _TrackingScreenState extends State<TrackingScreen> {
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        for (final symptom in const ['No symptoms', 'Headache', 'Fatigue', 'Dizziness', 'Nausea', 'Fever'])
+                        for (final symptom in _availableSymptoms)
                           FilterChip(
                             label: Text(symptom),
                             selected: _symptoms.contains(symptom),
-                            onSelected: (value) {
-                              setState(() {
-                                if (symptom == 'No symptoms' && value) {
-                                  _symptoms
-                                    ..clear()
-                                    ..add('No symptoms');
-                                } else {
-                                  _symptoms.remove('No symptoms');
-                                  if (value) {
-                                    _symptoms.add(symptom);
-                                  } else {
-                                    _symptoms.remove(symptom);
-                                  }
-                                  if (_symptoms.isEmpty) {
-                                    _symptoms.add('No symptoms');
-                                  }
-                                }
-                              });
-                            },
+                            onSelected: _saving
+                                ? null
+                                : (value) => _toggleSymptom(symptom, value),
                           ),
                       ],
                     ),
                     const SizedBox(height: 10),
                     TextFormField(
                       controller: _notesController,
+                      enabled: !_saving,
                       decoration: const InputDecoration(labelText: 'Notes'),
                       maxLines: 3,
                     ),
                     const SizedBox(height: 14),
                     SizedBox(
                       width: double.infinity,
-                      child: FilledButton(
-                        onPressed: _submit,
-                        child: const Text('Save Log'),
+                      child: FilledButton.icon(
+                        onPressed: _saving ? null : _submit,
+                        icon: _saving
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.check_rounded),
+                        label: Text(_saving ? 'Saving...' : 'Save Log'),
                       ),
                     ),
                   ],
@@ -187,24 +274,32 @@ class _TrackingScreenState extends State<TrackingScreen> {
     );
   }
 
-  Widget _numberField(TextEditingController controller, String label, {double? min, double? max, bool integer = false}) {
+  Widget _numberField(
+    TextEditingController controller,
+    String label, {
+    double? min,
+    double? max,
+    bool integer = false,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: TextFormField(
         controller: controller,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        decoration: InputDecoration(
-          labelText: label,
-        ),
+        enabled: !_saving,
+        keyboardType: TextInputType.numberWithOptions(decimal: !integer),
+        decoration: InputDecoration(labelText: label),
         validator: (value) {
-          if (value == null || value.isEmpty) {
+          final text = value?.trim() ?? '';
+          if (text.isEmpty) {
             return 'Required';
           }
-          final parsed = integer ? int.tryParse(value) : double.tryParse(value);
+
+          final parsed = integer ? int.tryParse(text) : double.tryParse(text);
           if (parsed == null) {
             return 'Enter a valid number';
           }
-          final asDouble = (parsed is int) ? parsed.toDouble() : (parsed as double);
+
+          final asDouble = parsed.toDouble();
           if (min != null && asDouble < min) return 'Must be >= $min';
           if (max != null && asDouble > max) return 'Must be <= $max';
           return null;

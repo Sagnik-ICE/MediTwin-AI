@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
@@ -5,6 +6,7 @@ import 'package:timezone/timezone.dart' as tz;
 
 import '../models/reminder_preferences.dart';
 import '../models/reminder_schedule.dart';
+import '../utils/debug_logger.dart';
 
 enum ReminderType {
   hydration,
@@ -17,16 +19,52 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
 
-  Future<void> init() async {
-    if (_initialized) {
-      return;
+  Future<bool> init() async {
+    if (kIsWeb) {
+      DebugLogger.debug('Local notifications are skipped on web.');
+      return false;
     }
 
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const settings = InitializationSettings(android: androidSettings);
-    tzdata.initializeTimeZones();
-    await _plugin.initialize(settings);
-    _initialized = true;
+    if (_initialized) {
+      return true;
+    }
+
+    try {
+      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const darwinSettings = DarwinInitializationSettings(
+        requestAlertPermission: true,
+        requestBadgePermission: true,
+        requestSoundPermission: true,
+      );
+
+      const settings = InitializationSettings(
+        android: androidSettings,
+        iOS: darwinSettings,
+        macOS: darwinSettings,
+      );
+
+      tzdata.initializeTimeZones();
+      await _plugin.initialize(settings);
+
+      await _requestPlatformPermissions();
+      _initialized = true;
+      return true;
+    } catch (e, st) {
+      DebugLogger.warning('Failed to initialize local notifications', e);
+      DebugLogger.debug(st.toString());
+      return false;
+    }
+  }
+
+  Future<void> _requestPlatformPermissions() async {
+    final android = _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    await android?.requestNotificationsPermission();
+
+    final ios = _plugin.resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
+    await ios?.requestPermissions(alert: true, badge: true, sound: true);
+
+    final macos = _plugin.resolvePlatformSpecificImplementation<MacOSFlutterLocalNotificationsPlugin>();
+    await macos?.requestPermissions(alert: true, badge: true, sound: true);
   }
 
   Future<void> scheduleSimpleReminders() async {
@@ -34,22 +72,25 @@ class NotificationService {
   }
 
   Future<void> showReminder(ReminderType type) async {
+    final ready = await init();
+    if (!ready) return;
+
     const details = NotificationDetails(
       android: AndroidNotificationDetails(
         'meditwin_reminders',
         'MediTwin Reminders',
+        channelDescription: 'Health, hydration, daily log, sleep, and stress break reminders.',
         importance: Importance.high,
         priority: Priority.high,
       ),
+      iOS: DarwinNotificationDetails(),
+      macOS: DarwinNotificationDetails(),
     );
-
-    final title = _titleFor(type);
-    final body = _bodyFor(type);
 
     await _plugin.show(
       type.index + 1,
-      title,
-      body,
+      _titleFor(type),
+      _bodyFor(type),
       details,
     );
   }
@@ -58,12 +99,10 @@ class NotificationService {
     required ReminderPreferences preferences,
     required ReminderSchedule schedule,
   }) async {
-    await init();
+    final ready = await init();
+    if (!ready) return;
 
-    await _plugin.cancel(_idFor(ReminderType.hydration));
-    await _plugin.cancel(_idFor(ReminderType.sleep));
-    await _plugin.cancel(_idFor(ReminderType.dailyLog));
-    await _plugin.cancel(_idFor(ReminderType.stressBreak));
+    await cancelAllReminderSchedules();
 
     if (preferences.hydration) {
       await _scheduleSingle(ReminderType.hydration, schedule.hydration);
@@ -79,14 +118,26 @@ class NotificationService {
     }
   }
 
+  Future<void> cancelAllReminderSchedules() async {
+    if (kIsWeb) return;
+
+    await _plugin.cancel(_idFor(ReminderType.hydration));
+    await _plugin.cancel(_idFor(ReminderType.sleep));
+    await _plugin.cancel(_idFor(ReminderType.dailyLog));
+    await _plugin.cancel(_idFor(ReminderType.stressBreak));
+  }
+
   Future<void> _scheduleSingle(ReminderType type, TimeOfDay time) async {
-    final details = const NotificationDetails(
+    const details = NotificationDetails(
       android: AndroidNotificationDetails(
         'meditwin_reminders',
         'MediTwin Reminders',
+        channelDescription: 'Health, hydration, daily log, sleep, and stress break reminders.',
         importance: Importance.high,
         priority: Priority.high,
       ),
+      iOS: DarwinNotificationDetails(),
+      macOS: DarwinNotificationDetails(),
     );
 
     await _plugin.zonedSchedule(
@@ -95,7 +146,7 @@ class NotificationService {
       _bodyFor(type),
       _nextInstanceOfTime(time.hour, time.minute),
       details,
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
       matchDateTimeComponents: DateTimeComponents.time,
     );
   }
@@ -103,7 +154,7 @@ class NotificationService {
   tz.TZDateTime _nextInstanceOfTime(int hour, int minute) {
     final now = tz.TZDateTime.now(tz.local);
     var scheduled = tz.TZDateTime(tz.local, now.year, now.month, now.day, hour, minute);
-    if (scheduled.isBefore(now)) {
+    if (!scheduled.isAfter(now)) {
       scheduled = scheduled.add(const Duration(days: 1));
     }
     return scheduled;

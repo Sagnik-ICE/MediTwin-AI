@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/app_state.dart';
-import '../utils/debug_logger.dart';
+import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 
 class AiSetupScreen extends StatefulWidget {
@@ -13,120 +13,118 @@ class AiSetupScreen extends StatefulWidget {
 }
 
 class _AiSetupScreenState extends State<AiSetupScreen> {
-  final _controller = TextEditingController();
   bool _testing = false;
+  bool? _lastResult;
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final api = context.read<AppState>().apiUrl;
-    _controller.text = api;
-  }
+  Future<void> _testLocalOllama() async {
+    if (_testing) return;
+    setState(() {
+      _testing = true;
+      _lastResult = null;
+    });
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  Future<void> _testAndSave() async {
-    final endpoint = _controller.text.trim();
-    if (endpoint.isEmpty) {
-      // ignore: use_build_context_synchronously
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter the AI endpoint.')));
-      return;
-    }
-
-    setState(() => _testing = true);
-    final appState = context.read<AppState>();
-    await appState.setApiUrl(endpoint);
-    try {
-      final ok = await appState.testBackendConnection();
-      if (!mounted) return;
-      // ignore: use_build_context_synchronously
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(ok ? 'AI server reachable.' : 'Could not reach the AI server. Check the laptop and network.'),
-        backgroundColor: ok ? Colors.green : Colors.orange,
-      ));
-      if (ok) {
-        Navigator.pop(context, true);
-      }
-    } catch (e) {
-      DebugLogger.error('AI setup test failed', e);
-      if (!mounted) return;
-      // ignore: use_build_context_synchronously
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Connection test failed: $e')));
-    } finally {
-      if (mounted) setState(() => _testing = false);
-    }
-  }
-
-  Future<void> _saveOnly() async {
-    final endpoint = _controller.text.trim();
-    if (endpoint.isEmpty) {
-      // ignore: use_build_context_synchronously
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter the AI endpoint.')));
-      return;
-    }
-    final appState = context.read<AppState>();
-    await appState.setApiUrl(endpoint);
+    final ok = await context.read<AppState>().testBackendConnection();
     if (!mounted) return;
-    // ignore: use_build_context_synchronously
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Endpoint saved. You can test it any time in Settings.')));
-    Navigator.pop(context, true);
+
+    setState(() {
+      _testing = false;
+      _lastResult = ok;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok ? 'Local Ollama is reachable.' : 'Could not reach local Ollama.'),
+        backgroundColor: ok ? Colors.green : Colors.orange,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final endpoint = context.watch<AppState>().apiUrl.trim().isEmpty
+        ? StorageService.defaultApiUrl
+        : context.watch<AppState>().apiUrl.trim();
+
     return Scaffold(
-      appBar: AppBar(title: const Text('AI Endpoint Setup')),
+      appBar: AppBar(title: const Text('Local Ollama Status')),
       body: SafeArea(
-        child: Padding(
+        child: ListView(
           padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Connect to your laptop-hosted Qwen model',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Enter the laptop IP and port (e.g. 192.168.1.5:11434) or the full URL. Use the Test button to verify connectivity.',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppTheme.textMuted),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _controller,
-                keyboardType: TextInputType.url,
-                decoration: const InputDecoration(
-                  labelText: 'AI endpoint',
-                  hintText: '192.168.1.12:11434 or http://192.168.1.12:11434/api/generate',
+          children: [
+            Text(
+              'Automatic local AI connection',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'MediTwin connects automatically to Ollama running on this laptop.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppTheme.textMuted),
+            ),
+            const SizedBox(height: 16),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Endpoint',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 8),
+                    SelectableText(endpoint),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Expected model: qwen3:8b-q4_K_M',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: _testing ? null : _testAndSave,
-                      icon: _testing
-                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.wifi_tethering_rounded),
-                      label: Text(_testing ? 'Testing...' : 'Test & Save'),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.info_outline_rounded, color: Theme.of(context).colorScheme.primary),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'For Flutter Web on this laptop, 127.0.0.1 connects to Ollama on the same laptop. Keep Ollama running before using Chat.',
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  OutlinedButton(
-                    onPressed: _testing ? null : _saveOnly,
-                    child: const Text('Save (skip test)'),
-                  ),
-                ],
+                  ],
+                ),
               ),
-              const SizedBox(height: 16),
-              const Text('If you do not have Ollama running, please start the service on your laptop and ensure your phone and laptop are on the same Wi‑Fi network.'),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _testing ? null : _testLocalOllama,
+              icon: _testing
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.wifi_tethering_rounded),
+              label: Text(_testing ? 'Testing...' : 'Test local Ollama'),
+            ),
+            if (_lastResult != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _lastResult == true
+                    ? 'Status: connected.'
+                    : 'Status: not connected. Start Ollama and confirm it is listening on port 11434.',
+                style: TextStyle(
+                  color: _lastResult == true ? Colors.green : Colors.orange,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ],
-          ),
+          ],
         ),
       ),
     );

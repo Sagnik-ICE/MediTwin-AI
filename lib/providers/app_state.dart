@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-// removed unused import
 import '../models/chat_message.dart';
 import '../models/chat_session.dart';
 import '../models/health_log.dart';
@@ -11,7 +10,6 @@ import 'dart:convert';
 
 import '../services/ai_service.dart';
 import '../utils/debug_logger.dart';
-import '../services/emergency_service.dart';
 import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
 import '../services/health_score_service.dart';
@@ -19,6 +17,7 @@ import '../services/risk_detection_service.dart';
 import '../services/simulation_service.dart';
 import '../services/storage_service.dart';
 import '../services/local_db.dart';
+import '../services/notification_service.dart';
 
 class AppState extends ChangeNotifier {
   static const String mainAdminEmail = 'dibbay242-50-014@diu.edu.bd';
@@ -28,12 +27,14 @@ class AppState extends ChangeNotifier {
     required AiService aiService,
     required AuthService authService,
     required FirestoreService firestoreService,
+    NotificationService? notificationService,
   }) {
     return AppState._internal(
       storageService: storageService,
       aiService: aiService,
       authService: authService,
       firestoreService: firestoreService,
+      notificationService: notificationService ?? NotificationService(),
     );
   }
 
@@ -42,12 +43,14 @@ class AppState extends ChangeNotifier {
     required this._aiService,
     required this._authService,
     required this._firestoreService,
+    required this._notificationService,
   });
 
   final StorageService _storageService;
   final AiService _aiService;
   final AuthService _authService;
   final FirestoreService _firestoreService;
+  final NotificationService _notificationService;
 
   bool initialized = false;
   bool darkMode = false;
@@ -59,9 +62,11 @@ class AppState extends ChangeNotifier {
   String? get currentUserEmail => _authService.currentUserEmail;
   bool onboardingCompleted = false;
   bool isChatLoading = false;
+
+
   String chatMode = 'General';
-  String apiUrl = '';
-  String modelInfo = 'qwen3:8b-q4_K_M (local backend expected)';
+  String apiUrl = StorageService.defaultApiUrl;
+  String modelInfo = 'qwen3:8b-q4_K_M via local Ollama';
   ReminderPreferences reminderPreferences = ReminderPreferences.defaults();
   ReminderSchedule reminderSchedule = ReminderSchedule.defaults();
 
@@ -69,6 +74,24 @@ class AppState extends ChangeNotifier {
   List<HealthLog> logs = [];
   List<ChatSession> chatSessions = [];
   String? activeChatSessionId;
+
+  HealthLog? get latestLog => logs.isEmpty ? null : logs.first;
+
+  HealthLog? get todayLog {
+    if (logs.isEmpty) {
+      return null;
+    }
+
+    final now = DateTime.now();
+    for (final log in logs) {
+      final date = log.date;
+      if (date.year == now.year && date.month == now.month && date.day == now.day) {
+        return log;
+      }
+    }
+
+    return null;
+  }
 
   List<ChatMessage> get chatMessages => _activeChatSession.messages;
 
@@ -97,6 +120,7 @@ class AppState extends ChangeNotifier {
     apiUrl = await _storageService.getApiUrl();
     reminderPreferences = await _storageService.loadReminderPreferences();
     reminderSchedule = await _storageService.loadReminderSchedule();
+    await _rescheduleRemindersIfPossible();
     profile = UserProfile.empty();
     logs = [];
     chatSessions = [];
@@ -126,13 +150,13 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  int get todayScore => logs.isEmpty ? 0 : logs.first.healthScore;
+  int get todayScore => todayLog?.healthScore ?? 0;
 
   List<String> get memoryHints {
     if (logs.isEmpty) {
       return const ['No health logs yet'];
     }
-    final latest = logs.first;
+    final latest = latestLog!;
     return [
       weeklyMemorySummary,
       'Latest score ${latest.healthScore}',
@@ -159,9 +183,13 @@ class AppState extends ChangeNotifier {
   }
 
   String get personalizedInsight {
-    final latest = logs.isNotEmpty ? logs.first : null;
+    final latest = latestLog;
     final base = latest?.insight ?? 'Start tracking daily to generate your personalized insight.';
-    return '$base Goal focus: ${profile.healthGoals}.';
+    final goal = profile.healthGoals.trim();
+    if (goal.isEmpty) {
+      return base;
+    }
+    return '$base Goal focus: $goal.';
   }
 
   Future<void> addHealthLog({
@@ -239,41 +267,36 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> askAssistantWithMode(String userText, {required String chatMode}) async {
+    final normalizedUserText = userText.trim();
+    if (normalizedUserText.isEmpty || isChatLoading) {
+      return;
+    }
+
     final currentSession = _ensureChatSession();
     final userMessage = ChatMessage(
-      text: userText,
+      text: normalizedUserText,
       isUser: true,
       timestamp: DateTime.now(),
     );
+
     _replaceActiveChatSession(
       currentSession.copyWith(
-        title: _titleForSession(currentSession, userText),
+        title: _titleForSession(currentSession, normalizedUserText),
         updatedAt: DateTime.now(),
         messages: [...currentSession.messages, userMessage],
       ),
     );
+
     isChatLoading = true;
     notifyListeners();
-    // If no API URL configured, short-circuit with clear instruction.
-    if (apiUrl.trim().isEmpty) {
-      final assistantMessage = ChatMessage(
-        text: 'AI server not configured. Please open Settings → AI Endpoint and enter your laptop\'s IP and port (e.g. 192.168.1.5:11434), then tap "Test Connection".',
-        isUser: false,
-        timestamp: DateTime.now(),
-        isError: true,
-      );
 
-      _appendToActiveChat(assistantMessage);
-      isChatLoading = false;
-      notifyListeners();
-      return;
-    }
+    final endpoint = apiUrl.trim().isEmpty ? StorageService.defaultApiUrl : apiUrl.trim();
 
     String answer;
     try {
       answer = await _aiService.askAssistant(
-        prompt: userText,
-        apiUrl: apiUrl,
+        prompt: normalizedUserText,
+        apiUrl: endpoint,
         memoryHints: memoryHints,
         chatMode: chatMode,
       );
@@ -283,7 +306,7 @@ class AppState extends ChangeNotifier {
       answer = AiService.fallbackConnectionMessage;
     }
 
-    final isError = answer == AiService.fallbackConnectionMessage || answer == EmergencyService.emergencyWarning;
+    final isError = answer.startsWith(AiService.fallbackConnectionMessage);
 
     final assistantMessage = ChatMessage(
       text: answer,
@@ -373,11 +396,62 @@ class AppState extends ChangeNotifier {
     return SimulationService.simulate(scenario: scenario, history: logs);
   }
 
-  Future<void> updateProfile(UserProfile newProfile) async {
-    profile = newProfile;
-    await _syncDonorRecordIfNeeded();
-    await _syncCloudStateIfAvailable();
-    notifyListeners();
+  Future<String?> updateProfile(UserProfile newProfile) async {
+    final previousProfile = profile;
+
+    final requestedAccountType = newProfile.accountType.trim();
+    final existingAccountType = previousProfile.accountType.trim();
+    final safeAccountType = requestedAccountType.isNotEmpty
+        ? requestedAccountType
+        : existingAccountType.isNotEmpty
+            ? existingAccountType
+            : 'patient';
+
+    final normalizedProfile = UserProfile(
+      name: newProfile.name.trim(),
+      email: newProfile.email.trim().toLowerCase(),
+      age: newProfile.age,
+      gender: newProfile.gender,
+      bloodGroup: newProfile.bloodGroup,
+      isBloodDonor: newProfile.isBloodDonor,
+      donorContactInfo: newProfile.isBloodDonor ? newProfile.donorContactInfo.trim() : '',
+      heightCm: newProfile.heightCm,
+      weightKg: newProfile.weightKg,
+      healthGoals: newProfile.healthGoals.trim(),
+      contactInfo: newProfile.contactInfo.trim(),
+      division: newProfile.division,
+      district: newProfile.district,
+      accountType: safeAccountType,
+    );
+
+    profile = normalizedProfile;
+
+    try {
+      await _syncCloudStateStrict();
+
+      final userId = _authService.currentUserId;
+      if (safeAccountType.toLowerCase() == 'doctor' &&
+          userId != null &&
+          userId.trim().isNotEmpty) {
+        final publicProfileSynced = await _firestoreService.updateLinkedDoctorProfileFromUserProfile(
+          userId: userId,
+          profile: profile,
+          authEmail: _authService.currentUserEmail,
+        );
+        if (!publicProfileSynced) {
+          DebugLogger.warning('Private doctor profile saved, but no linked public doctor directory document was found for $userId');
+        }
+      }
+
+      notifyListeners();
+      return null;
+    } catch (e, st) {
+      DebugLogger.warning('Failed to update profile data', e);
+      DebugLogger.debug(st.toString());
+      profile = previousProfile;
+      notifyListeners();
+      return 'Profile data could not be saved to Firestore. Check your connection and Firestore rules, then try again.';
+    }
   }
 
   Future<void> setDarkMode(bool enabled) async {
@@ -395,17 +469,32 @@ class AppState extends ChangeNotifier {
   Future<void> setReminderPreferences(ReminderPreferences value) async {
     reminderPreferences = value;
     await _storageService.saveReminderPreferences(value);
+    await _rescheduleRemindersIfPossible();
     notifyListeners();
   }
 
   Future<void> setReminderSchedule(ReminderSchedule value) async {
     reminderSchedule = value;
     await _storageService.saveReminderSchedule(value);
+    await _rescheduleRemindersIfPossible();
     notifyListeners();
   }
 
+  Future<void> _rescheduleRemindersIfPossible() async {
+    try {
+      await _notificationService.scheduleDailyReminders(
+        preferences: reminderPreferences,
+        schedule: reminderSchedule,
+      );
+    } catch (e, st) {
+      DebugLogger.warning('Failed to schedule local reminders', e);
+      DebugLogger.debug(st.toString());
+    }
+  }
+
   Future<bool> testBackendConnection() async {
-    return _aiService.testConnection(apiUrl);
+    final endpoint = apiUrl.trim().isEmpty ? StorageService.defaultApiUrl : apiUrl.trim();
+    return _aiService.testConnection(endpoint);
   }
 
   Future<String?> login(String email, String password) async {
@@ -433,33 +522,75 @@ class AppState extends ChangeNotifier {
   }
 
 
-  Future<void> completeOnboarding(UserProfile value) async {
-    profile = value.accountType.isEmpty ? value : UserProfile(
-      name: value.name,
-      email: value.email,
+  Future<String?> completeOnboarding(UserProfile value) async {
+    final previousOnboardingCompleted = onboardingCompleted;
+
+    final requestedAccountType = value.accountType.trim();
+    final existingAccountType = profile.accountType.trim();
+    final safeAccountType = requestedAccountType.isNotEmpty
+        ? requestedAccountType
+        : existingAccountType.isNotEmpty
+            ? existingAccountType
+            : 'patient';
+
+    profile = UserProfile(
+      name: value.name.trim(),
+      email: value.email.trim().toLowerCase(),
       age: value.age,
       gender: value.gender,
       bloodGroup: value.bloodGroup,
       isBloodDonor: value.isBloodDonor,
-      donorContactInfo: value.donorContactInfo,
+      donorContactInfo: value.isBloodDonor ? value.donorContactInfo : '',
       heightCm: value.heightCm,
       weightKg: value.weightKg,
       healthGoals: value.healthGoals,
       contactInfo: value.contactInfo,
       division: value.division,
       district: value.district,
-      accountType: value.accountType.isEmpty ? 'patient' : value.accountType,
+      accountType: safeAccountType,
     );
     onboardingCompleted = true;
-    await _syncCloudStateIfAvailable();
-    notifyListeners();
+
+    try {
+      await _syncCloudStateStrict();
+
+      final userId = _authService.currentUserId;
+      if (safeAccountType.toLowerCase() == 'doctor' &&
+          userId != null &&
+          userId.trim().isNotEmpty) {
+        final publicProfileSynced = await _firestoreService.updateLinkedDoctorProfileFromUserProfile(
+          userId: userId,
+          profile: profile,
+          authEmail: _authService.currentUserEmail,
+        );
+        if (!publicProfileSynced) {
+          DebugLogger.warning('Private doctor profile saved, but no linked public doctor directory document was found for $userId');
+        }
+      }
+
+      notifyListeners();
+      return null;
+    } catch (e, st) {
+      DebugLogger.warning('Failed to complete onboarding profile sync', e);
+      DebugLogger.debug(st.toString());
+
+      // Keep the entered profile data visible in the UI, but report the failure
+      // so the auth/onboarding screen does not route forward as if signup
+      // finished successfully.
+      onboardingCompleted = previousOnboardingCompleted;
+      notifyListeners();
+      return 'Account was created, but profile data could not be saved to Firestore. Check Firestore rules and try again.';
+    }
   }
 
   Future<void> logout() async {
     loggedIn = false;
     isAdmin = false;
     await _authService.logout();
-    await LocalDb.saveHealthLogs([]);
+
+    // Do not clear LocalDb on logout. LocalDb is the offline cache and may be
+    // the user's only copy if a previous cloud sync failed. Account deletion is
+    // the only flow that intentionally clears local health data.
     _resetUserSessionState();
     notifyListeners();
   }
@@ -535,36 +666,61 @@ class AppState extends ChangeNotifier {
     return jsonEncode(map);
   }
 
-  /// Delete user cloud data and attempt to delete the authentication account.
+  /// Delete the current account.
+  ///
+  /// Order matters:
+  /// 1. Reauthenticate first. If the password is wrong, no data is removed.
+  /// 2. Delete the user's Firestore documents while the user is still signed in.
+  /// 3. Delete the Firebase Auth account.
+  /// 4. Clear local offline cache only after the remote delete succeeds.
   Future<String?> deleteAccount({String? password}) async {
     if (password == null || password.trim().isEmpty) {
       return 'Password is required to delete the account.';
     }
 
-    try {
-      if (_authService.canUseFirebase) {
-        final userId = _authService.currentUserId;
-        if (userId != null) {
-          await _firestoreService.deleteDonor(userId);
-          await _firestoreService.deleteUserState(userId);
-        }
-      }
-    } catch (e, st) {
-      DebugLogger.warning('Failed to delete cloud user state', e);
-      DebugLogger.debug(st.toString());
-      return 'Failed to remove cloud data';
+    final userId = _authService.currentUserId;
+    if (userId == null || userId.trim().isEmpty) {
+      return 'No authenticated account is available for deletion.';
     }
 
-    final authResult = await _authService.reauthenticateAndDeleteWithPassword(password: password);
-    if (authResult != null) return authResult;
+    final reauthError = await _authService.reauthenticateWithPassword(
+      password: password.trim(),
+    );
+    if (reauthError != null) {
+      return reauthError;
+    }
 
-    // Clear local data
-    logs = [];
-    chatSessions = [];
-    activeChatSessionId = null;
-    profile = UserProfile.empty();
+    final userEmail = _authService.currentUserEmail?.trim().toLowerCase();
+
+    try {
+      if (_authService.canUseFirebase) {
+        await _firestoreService.deleteAccountOwnedData(
+          userId: userId,
+          email: userEmail,
+        );
+      }
+    } catch (e, st) {
+      DebugLogger.warning('Failed to delete complete cloud account data', e);
+      DebugLogger.debug(st.toString());
+      return 'Password verified, but all cloud data could not be removed. Account deletion was stopped.';
+    }
+
+    final authResult = await _authService.deleteCurrentUser();
+    if (authResult != null) {
+      return authResult;
+    }
+
+    loggedIn = false;
+    isAdmin = false;
+    _resetUserSessionState();
     await LocalDb.saveHealthLogs([]);
+
+    // Let the declarative app root switch back to the sign-in screen. Do not
+    // reset MaterialApp/Navigator keys during this notification; doing so while
+    // provider-dependent widgets are being disposed can trigger Flutter web
+    // inherited-widget assertions.
     notifyListeners();
+
     return null;
   }
 
@@ -580,15 +736,37 @@ class AppState extends ChangeNotifier {
     if (!isMainAdmin) {
       return 'Only the main admin can add new admins.';
     }
-    final email = profile.email.trim();
+
+    final email = profile.email.trim().toLowerCase();
     final displayName = profile.name.trim();
-    final uid = await _authService.provisionUserAccount(email: email, password: password);
-    if (uid == null || uid.isEmpty) {
+
+    if (email.isEmpty) {
+      return 'Admin email is required.';
+    }
+
+    if (displayName.isEmpty) {
+      return 'Admin name is required.';
+    }
+
+    if (password.trim().isEmpty) {
+      return 'Admin password is required.';
+    }
+
+    final provisionResult = await _authService.provisionUserAccount(
+      email: email,
+      password: password,
+    );
+
+    if (!provisionResult.success) {
+      return provisionResult.errorMessage ?? 'Failed to create the admin account.';
+    }
+
+    final uid = provisionResult.uid;
+
+    if (uid == null || uid.trim().isEmpty) {
       return 'Failed to create the admin account.';
     }
-    if (uid.contains('failed') || uid.contains('enter a valid') || uid.contains('password') || uid.contains('email')) {
-      return uid;
-    }
+
     final adminProfile = UserProfile(
       name: displayName,
       email: email,
@@ -605,22 +783,32 @@ class AppState extends ChangeNotifier {
       district: profile.district,
       accountType: 'admin',
     );
-    await _firestoreService.saveAdmin(
-      email: email,
-      displayName: displayName,
-      addedBy: _authService.currentUserId ?? '',
-      uid: uid,
-    );
-    await _firestoreService.saveUserState(
-      userId: uid,
-      profile: adminProfile,
-      logs: const [],
-      chatSessions: const [],
-      activeChatSessionId: null,
-      onboardingCompleted: true,
-    );
-    await _refreshAdminStatus();
-    return null;
+
+    try {
+      await _firestoreService.saveAdmin(
+        email: email,
+        displayName: displayName,
+        addedBy: _authService.currentUserId ?? '',
+        uid: uid,
+      );
+
+      await _firestoreService.saveUserState(
+        userId: uid,
+        profile: adminProfile,
+        logs: const [],
+        chatSessions: const [],
+        activeChatSessionId: null,
+        onboardingCompleted: true,
+      );
+
+      await _refreshAdminStatus();
+      return null;
+    } catch (e, st) {
+      DebugLogger.warning('Failed to save admin profile data', e);
+      DebugLogger.debug(st.toString());
+
+      return 'Admin account was created, but profile data could not be saved. Check Firestore rules and try again.';
+    }
   }
 
   Future<String?> addDoctorAccount({
@@ -633,14 +821,39 @@ class AppState extends ChangeNotifier {
       return 'Only an admin can add doctor accounts.';
     }
 
-    final uid = await _authService.provisionUserAccount(email: email, password: password);
-    if (uid == null || uid.isEmpty) {
+    final normalizedEmail = email.trim().toLowerCase();
+    final normalizedDisplayName = displayName.trim();
+
+    if (normalizedEmail.isEmpty) {
+      return 'Doctor email is required.';
+    }
+
+    if (normalizedDisplayName.isEmpty) {
+      return 'Doctor name is required.';
+    }
+
+    if (password.trim().isEmpty) {
+      return 'Doctor password is required.';
+    }
+
+    final provisionResult = await _authService.provisionUserAccount(
+      email: normalizedEmail,
+      password: password,
+    );
+
+    if (!provisionResult.success) {
+      return provisionResult.errorMessage ?? 'Failed to create the doctor account.';
+    }
+
+    final uid = provisionResult.uid;
+
+    if (uid == null || uid.trim().isEmpty) {
       return 'Failed to create the doctor account.';
     }
 
     final profile = UserProfile(
-      name: displayName,
-      email: email,
+      name: normalizedDisplayName,
+      email: normalizedEmail,
       age: (doctorData['age'] as num?)?.toInt() ?? 0,
       gender: (doctorData['gender'] as String?) ?? '',
       bloodGroup: (doctorData['bloodGroup'] as String?) ?? '',
@@ -655,29 +868,36 @@ class AppState extends ChangeNotifier {
       accountType: 'doctor',
     );
 
-    await _firestoreService.saveUserState(
-      userId: uid,
-      profile: profile,
-      logs: const [],
-      chatSessions: const [],
-      activeChatSessionId: null,
-      onboardingCompleted: true,
-    );
+    try {
+      await _firestoreService.saveUserState(
+        userId: uid,
+        profile: profile,
+        logs: const [],
+        chatSessions: const [],
+        activeChatSessionId: null,
+        onboardingCompleted: true,
+      );
 
-    await _firestoreService.saveDoctor({
-      ...doctorData,
-      'doctorUserId': uid,
-      'doctorEmail': email.toLowerCase(),
-      'displayName': displayName,
-      'rating': (doctorData['rating'] as num?)?.toDouble() ?? 0,
-      'ratingCount': 0,
-      'hasDedicatedProfile': true,
-      'acceptsAppointments': true,
-      'updatedAt': DateTime.now().toIso8601String(),
-    });
+      await _firestoreService.saveDoctor({
+        ...doctorData,
+        'doctorUserId': uid,
+        'doctorEmail': normalizedEmail,
+        'displayName': normalizedDisplayName,
+        'rating': (doctorData['rating'] as num?)?.toDouble() ?? 0,
+        'ratingCount': 0,
+        'hasDedicatedProfile': true,
+        'acceptsAppointments': true,
+        'updatedAt': DateTime.now().toIso8601String(),
+      });
 
-    await _refreshAdminStatus();
-    return null;
+      await _refreshAdminStatus();
+      return null;
+    } catch (e, st) {
+      DebugLogger.warning('Failed to save dedicated doctor profile data', e);
+      DebugLogger.debug(st.toString());
+
+      return 'Doctor account was created, but the dedicated doctor profile could not be saved. Check Firestore rules and try again.';
+    }
   }
 
   Future<void> removeAdmin(String adminId) async {
@@ -687,10 +907,11 @@ class AppState extends ChangeNotifier {
     await _firestoreService.deleteAdmin(adminId);
   }
 
-  String get aiServerIp => apiUrl;
+  String get aiServerIp => apiUrl.trim().isEmpty ? StorageService.defaultApiUrl : apiUrl;
 
   Future<void> setAiServerIp(String value) async {
-    await setApiUrl(value);
+    // Kept for backward compatibility. The app now defaults to local Ollama automatically.
+    await setApiUrl(value.trim().isEmpty ? StorageService.defaultApiUrl : value);
   }
 
   Future<bool> testAiConnection() async {
@@ -698,6 +919,15 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _syncCloudStateIfAvailable() async {
+    try {
+      await _syncCloudStateStrict();
+    } catch (e, st) {
+      DebugLogger.warning('Failed to sync cloud state', e);
+      DebugLogger.debug(st.toString());
+    }
+  }
+
+  Future<void> _syncCloudStateStrict() async {
     if (!_authService.canUseFirebase) {
       return;
     }
@@ -707,6 +937,23 @@ class AppState extends ChangeNotifier {
       return;
     }
 
+    if (!_hasStateWorthSyncing) {
+      return;
+    }
+
+    await _firestoreService.saveUserState(
+      userId: userId,
+      profile: profile,
+      logs: logs,
+      chatSessions: chatSessions,
+      activeChatSessionId: activeChatSessionId,
+      onboardingCompleted: onboardingCompleted,
+    );
+
+    await _syncDonorRecordIfNeeded();
+  }
+
+  bool get _hasStateWorthSyncing {
     final hasMeaningfulProfile = profile.name.trim().isNotEmpty ||
         profile.email.trim().isNotEmpty ||
         profile.gender.trim().isNotEmpty ||
@@ -721,30 +968,7 @@ class AppState extends ChangeNotifier {
         profile.district.trim().isNotEmpty ||
         profile.accountType.trim().isNotEmpty;
 
-    if (!onboardingCompleted && !hasMeaningfulProfile && logs.isEmpty && chatSessions.isEmpty) {
-      return;
-    }
-
-    try {
-      await _firestoreService.saveUserState(
-        userId: userId,
-        profile: profile,
-        logs: logs,
-        chatSessions: chatSessions,
-        activeChatSessionId: activeChatSessionId,
-        onboardingCompleted: onboardingCompleted,
-      );
-    } catch (e, st) {
-      DebugLogger.warning('Failed to sync cloud state', e);
-      DebugLogger.debug(st.toString());
-    }
-
-    try {
-      await _syncDonorRecordIfNeeded();
-    } catch (e, st) {
-      DebugLogger.warning('Failed to sync donor record', e);
-      DebugLogger.debug(st.toString());
-    }
+    return onboardingCompleted || hasMeaningfulProfile || logs.isNotEmpty || chatSessions.isNotEmpty;
   }
 
   Future<void> _syncDonorRecordIfNeeded() async {
@@ -763,20 +987,24 @@ class AppState extends ChangeNotifier {
       return;
     }
 
+    final publicContact = profile.donorContactInfo.trim().isNotEmpty
+        ? profile.donorContactInfo.trim()
+        : profile.contactInfo.trim();
+
+    // Keep the public donor directory intentionally minimal. The blood_donors
+    // collection is public-readable in the current app, so do not publish private
+    // profile details such as email, age, height, weight, health goals, known
+    // conditions, or general medical notes.
     await _firestoreService.saveDonor({
       'id': userId,
-      'name': profile.name,
-      'email': email,
-      'contactInfo': profile.contactInfo.isNotEmpty ? profile.contactInfo : profile.donorContactInfo,
-      'bloodGroup': profile.bloodGroup,
-      'division': profile.division,
-      'district': profile.district,
-      'gender': profile.gender,
-      'age': profile.age,
-      'heightCm': profile.heightCm,
-      'weightKg': profile.weightKg,
-      'healthGoals': profile.healthGoals,
-      'knownConditions': profile.knownConditions,
+      'type': 'donor',
+      'name': profile.name.trim(),
+      'contact': publicContact,
+      'contactInfo': publicContact,
+      'bloodGroup': profile.bloodGroup.trim().toUpperCase(),
+      'division': profile.division.trim(),
+      'district': profile.district.trim(),
+      'gender': profile.gender.trim(),
       'isBloodDonor': true,
       'source': 'profile',
     });

@@ -54,58 +54,84 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   Future<void> _submit() async {
+    if (_loading) return;
     if (!_formKey.currentState!.validate()) return;
 
     final appState = context.read<AppState>();
+    final email = _emailController.text.trim().toLowerCase();
+    final password = _passwordController.text.trim();
+
     setState(() {
       _loading = true;
       _error = null;
     });
 
-    final email = _emailController.text.trim();
-    final password = _passwordController.text.trim();
-    final error = _register ? await appState.register(email, password) : await appState.login(email, password);
+    try {
+      final authError = _register
+          ? await appState.register(email, password)
+          : await appState.login(email, password);
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() {
-      _loading = false;
-      _error = error;
-    });
+      if (authError != null) {
+        setState(() {
+          _loading = false;
+          _error = authError;
+        });
+        return;
+      }
 
-    if (error != null) return;
+      if (_register) {
+        final profile = UserProfile(
+          name: _nameController.text.trim(),
+          email: email,
+          age: int.tryParse(_ageController.text.trim()) ?? 0,
+          gender: _gender,
+          bloodGroup: _bloodGroup,
+          isBloodDonor: _isBloodDonor,
+          donorContactInfo: _isBloodDonor ? _contactController.text.trim() : '',
+          heightCm: double.tryParse(_heightController.text.trim()) ?? 0,
+          weightKg: double.tryParse(_weightController.text.trim()) ?? 0,
+          healthGoals: _goalsController.text.trim(),
+          contactInfo: _contactController.text.trim(),
+          division: _division,
+          district: _district,
+          accountType: 'patient',
+        );
 
-    if (_register) {
-      final profile = UserProfile(
-        name: _nameController.text.trim(),
-        email: email,
-        age: int.tryParse(_ageController.text.trim()) ?? 0,
-        gender: _gender,
-        bloodGroup: _bloodGroup,
-        isBloodDonor: _isBloodDonor,
-        donorContactInfo: _isBloodDonor ? _contactController.text.trim() : '',
-        heightCm: double.tryParse(_heightController.text.trim()) ?? 0,
-        weightKg: double.tryParse(_weightController.text.trim()) ?? 0,
-        healthGoals: _goalsController.text.trim(),
-        contactInfo: _contactController.text.trim(),
-        division: _isBloodDonor ? _division : '',
-        district: _isBloodDonor ? _district : '',
-        accountType: 'patient',
-      );
-      await appState.completeOnboarding(profile);
+        final profileError = await appState.completeOnboarding(profile);
+        if (!mounted) return;
+
+        if (profileError != null) {
+          setState(() {
+            _loading = false;
+            _error = profileError;
+          });
+          return;
+        }
+      }
+
+      await appState.refreshAuthState();
+      if (!mounted) return;
+
+      final isAdminUser = appState.isAdmin || appState.profile.accountType.toLowerCase() == 'admin';
+      final next = appState.isDoctor
+          ? const DoctorShell()
+          : isAdminUser
+              ? const AdminShell()
+              : const MainShell();
+
+      setState(() => _loading = false);
+      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => next));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = _register
+            ? 'Account was created, but signup could not be completed. Check Firestore rules and try again.'
+            : 'Sign in failed. Please try again.';
+      });
     }
-
-    await appState.refreshAuthState();
-    if (!mounted) return;
-
-    final isAdminUser = appState.isAdmin || appState.profile.accountType.toLowerCase() == 'admin';
-    final next = appState.isDoctor
-      ? const DoctorShell()
-      : isAdminUser
-        ? const AdminShell()
-        : const MainShell();
-
-    Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => next));
   }
 
   @override
@@ -288,13 +314,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   value: _isBloodDonor,
-                  onChanged: (value) => setState(() {
-                    _isBloodDonor = value;
-                    if (!value) {
-                      _division = '';
-                      _district = '';
-                    }
-                  }),
+                  onChanged: (value) => setState(() => _isBloodDonor = value),
                   title: const Text('Willing to be a blood donor'),
                   subtitle: const Text('Your donor record can be shown in the emergency donor list.'),
                 ),
@@ -310,22 +330,20 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
                 const SizedBox(height: 14),
                 _textField(controller: _goalsController, label: 'Health goals', maxLines: 2),
-                if (_isBloodDonor) ...[
-                  const SizedBox(height: 14),
-                  _dropdownField(
-                    label: 'Division',
-                    value: _division,
-                    items: BdLocations.divisions,
-                    onChanged: (value) => setState(() => _division = value ?? ''),
-                  ),
-                  const SizedBox(height: 14),
-                  _dropdownField(
-                    label: 'District',
-                    value: _district,
-                    items: BdLocations.districts,
-                    onChanged: (value) => setState(() => _district = value ?? ''),
-                  ),
-                ],
+                const SizedBox(height: 14),
+                _dropdownField(
+                  label: 'Division',
+                  value: _division,
+                  items: BdLocations.divisions,
+                  onChanged: (value) => setState(() => _division = value ?? ''),
+                ),
+                const SizedBox(height: 14),
+                _dropdownField(
+                  label: 'District',
+                  value: _district,
+                  items: BdLocations.districts,
+                  onChanged: (value) => setState(() => _district = value ?? ''),
+                ),
               ],
               const SizedBox(height: 14),
               if (_error != null)

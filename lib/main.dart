@@ -1,19 +1,24 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:provider/provider.dart';
 
+import 'constants/app_constants.dart';
 import 'firebase_options.dart';
 import 'providers/app_state.dart';
-import 'screens/splash_screen.dart';
+import 'screens/admin_shell.dart';
+import 'screens/auth_screen.dart';
+import 'screens/doctor_shell.dart';
+import 'screens/main_shell.dart';
 import 'services/ai_service.dart';
 import 'services/auth_service.dart';
 import 'services/firestore_service.dart';
 import 'services/storage_service.dart';
 import 'theme/app_theme.dart';
+import 'widgets/app_logo.dart';
 
 bool _crashlyticsEnabled = false;
 
@@ -90,16 +95,171 @@ class MediTwinApp extends StatelessWidget {
         authService: AuthService(),
         firestoreService: FirestoreService(),
       ),
-      child: Consumer<AppState>(
-        builder: (context, appState, _) {
-          return MaterialApp(
-            title: 'MediTwin AI',
-            debugShowCheckedModeBanner: false,
-            theme: AppTheme.lightTheme(),
-            themeMode: ThemeMode.light,
-            home: const SplashScreen(),
-          );
-        },
+      child: MaterialApp(
+        title: 'MediTwin AI',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme(),
+        themeMode: ThemeMode.light,
+        home: const _AppRoot(),
+      ),
+    );
+  }
+}
+
+class _AppRoot extends StatefulWidget {
+  const _AppRoot();
+
+  @override
+  State<_AppRoot> createState() => _AppRootState();
+}
+
+class _AppRootState extends State<_AppRoot> {
+  bool _minimumSplashDone = false;
+  Object? _bootError;
+
+  @override
+  void initState() {
+    super.initState();
+    _boot();
+  }
+
+  Future<void> _boot() async {
+    final appState = context.read<AppState>();
+
+    try {
+      if (!appState.initialized) {
+        await appState.init();
+      }
+    } catch (e, st) {
+      _recordFatalError(e, st);
+      _bootError = e;
+    }
+
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() => _minimumSplashDone = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<AppState>(
+      builder: (context, appState, _) {
+        if (_bootError != null) {
+          return _BootErrorScreen(error: _bootError.toString());
+        }
+
+        if (!appState.initialized || !_minimumSplashDone) {
+          return const _SplashVisual();
+        }
+
+        if (!appState.loggedIn) {
+          return const AuthScreen();
+        }
+
+        if (appState.isDoctor) {
+          return const DoctorShell();
+        }
+
+        final isAdminUser = appState.isAdmin || appState.profile.accountType.toLowerCase() == 'admin';
+        if (isAdminUser) {
+          return const AdminShell();
+        }
+
+        return const MainShell();
+      },
+    );
+  }
+}
+
+class _SplashVisual extends StatefulWidget {
+  const _SplashVisual();
+
+  @override
+  State<_SplashVisual> createState() => _SplashVisualState();
+}
+
+class _SplashVisualState extends State<_SplashVisual> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 1400))..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF0DA8A0), Color(0xFF2BC4E2), Color(0xFFF2F8FB)],
+          ),
+        ),
+        child: Center(
+          child: FadeTransition(
+            opacity: _controller,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const AppLogo(size: 96),
+                const SizedBox(height: 16),
+                Text(
+                  AppConstants.appName,
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  AppConstants.tagline,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: Colors.white),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BootErrorScreen extends StatelessWidget {
+  const _BootErrorScreen({required this.error});
+
+  final String error;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Unable to start MediTwin AI',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 12),
+              Text(error),
+            ],
+          ),
+        ),
       ),
     );
   }

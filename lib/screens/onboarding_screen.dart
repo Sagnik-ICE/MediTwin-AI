@@ -29,6 +29,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   String _division = '';
   String _district = '';
   bool _isBloodDonor = false;
+  bool _saving = false;
+  String? _error;
 
   @override
   void initState() {
@@ -60,13 +62,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Future<void> _finish() async {
+    if (_saving) return;
     if (!_formKey.currentState!.validate()) {
       return;
     }
 
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+
     final profile = UserProfile(
       name: _nameController.text.trim(),
-      email: _signupEmail,
+      email: _signupEmail.trim().toLowerCase(),
       age: int.parse(_ageController.text.trim()),
       gender: _gender,
       bloodGroup: _bloodGroup,
@@ -80,16 +88,27 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       district: _district,
     );
 
-    await context.read<AppState>().completeOnboarding(profile);
+    final appState = context.read<AppState>();
+    final profileError = await appState.completeOnboarding(profile);
 
     if (!mounted) {
       return;
     }
 
+    if (profileError != null) {
+      setState(() {
+        _saving = false;
+        _error = profileError;
+      });
+      return;
+    }
+
     // Refresh auth/cloud state to ensure admin flag is current before routing.
-    await context.read<AppState>().refreshAuthState();
+    await appState.refreshAuthState();
     if (!mounted) return;
+
     final isAdmin = context.read<AppState>().isAdmin;
+    setState(() => _saving = false);
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => isAdmin ? const AdminShell() : const MainShell()),
     );
@@ -131,13 +150,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     value: _isBloodDonor,
-                    onChanged: (value) => setState(() {
-                      _isBloodDonor = value;
-                      if (!value) {
-                        _division = '';
-                        _district = '';
-                      }
-                    }),
+                    onChanged: (value) => setState(() => _isBloodDonor = value),
                     title: const Text('Willing to be a blood donor'),
                     subtitle: const Text('Your contact will be reused for donor records if you opt in.'),
                   ),
@@ -145,20 +158,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   _field(_heightController, 'Height (cm)', number: true),
                   _field(_weightController, 'Weight (kg)', number: true),
                   _field(_goalsController, 'Health goals', maxLines: 2),
-                  if (_isBloodDonor) ...[
-                    _selectField(
-                      label: 'Division',
-                      value: _division,
-                      items: BdLocations.divisions,
-                      onChanged: (value) => setState(() => _division = value ?? ''),
-                    ),
-                    _selectField(
-                      label: 'District',
-                      value: _district,
-                      items: BdLocations.districts,
-                      onChanged: (value) => setState(() => _district = value ?? ''),
-                    ),
-                  ],
+                  _selectField(
+                    label: 'Division',
+                    value: _division,
+                    items: BdLocations.divisions,
+                    onChanged: (value) => setState(() => _division = value ?? ''),
+                  ),
+                  _selectField(
+                    label: 'District',
+                    value: _district,
+                    items: BdLocations.districts,
+                    onChanged: (value) => setState(() => _district = value ?? ''),
+                  ),
                   const SizedBox(height: 4),
                   Align(
                     alignment: Alignment.centerLeft,
@@ -168,11 +179,32 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  if (_error != null) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.errorContainer,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        _error!,
+                        style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton(
-                      onPressed: _finish,
-                      child: const Text('Complete Onboarding'),
+                      onPressed: _saving ? null : _finish,
+                      child: _saving
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Text('Complete Onboarding'),
                     ),
                   ),
                 ],

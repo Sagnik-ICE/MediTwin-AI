@@ -6,6 +6,8 @@ import '../models/reminder_preferences.dart';
 import '../models/reminder_schedule.dart';
 
 class StorageService {
+  static const String defaultApiUrl = 'http://127.0.0.1:11434/api/generate';
+
   static const _themeModeKey = 'dark_mode';
   static const _apiUrlKey = 'api_url';
   static const _reminderPrefsKey = 'reminder_prefs';
@@ -23,12 +25,17 @@ class StorageService {
 
   Future<void> setApiUrl(String url) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_apiUrlKey, url);
+    // The app uses automatic local Ollama. Keep this method only for backward
+    // compatibility with older screens/services and clear any old manual value.
+    await prefs.remove(_apiUrlKey);
   }
 
   Future<String> getApiUrl() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_apiUrlKey) ?? 'http://127.0.0.1:11434/api/generate';
+    // Clear any endpoint saved by older builds so the app always returns to
+    // automatic local Ollama.
+    await prefs.remove(_apiUrlKey);
+    return defaultApiUrl;
   }
 
   Future<void> saveReminderPreferences(ReminderPreferences preferences) async {

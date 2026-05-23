@@ -4,6 +4,32 @@ import 'package:flutter/foundation.dart';
 import '../firebase_options.dart';
 import '../utils/debug_logger.dart';
 
+class AuthProvisionResult {
+  const AuthProvisionResult._({
+    required this.success,
+    this.uid,
+    this.errorMessage,
+  });
+
+  final bool success;
+  final String? uid;
+  final String? errorMessage;
+
+  factory AuthProvisionResult.created(String uid) {
+    return AuthProvisionResult._(
+      success: true,
+      uid: uid,
+    );
+  }
+
+  factory AuthProvisionResult.failed(String message) {
+    return AuthProvisionResult._(
+      success: false,
+      errorMessage: message,
+    );
+  }
+}
+
 /// Firebase authentication service for user login, registration, and session management.
 /// Handles Firebase initialization with platform-specific configuration (Web uses DefaultFirebaseOptions).
 /// Provides safe fallback behavior when Firebase is unavailable.
@@ -147,38 +173,73 @@ class AuthService {
   }
 
   /// Create a Firebase Auth user on a secondary app so the current admin session stays intact.
-  /// Returns the created user's uid on success, or an error message on failure.
-  Future<String?> provisionUserAccount({required String email, required String password}) async {
+  /// Returns a typed result so an error message can never be mistaken for a UID.
+  Future<AuthProvisionResult> provisionUserAccount({
+    required String email,
+    required String password,
+  }) async {
     if (!_firebaseInitialized) {
       await initializeFirebase();
     }
 
     if (!_firebaseInitialized) {
-      final error = 'Firebase is unavailable. ${_firebaseInitError ?? 'Initialization failed.'} Ensure you run on Android/iOS with Firebase config files in place.';
-      DebugLogger.warning('Secondary account provisioning attempted with unavailable Firebase: $error');
-      return error;
+      final error =
+          'Firebase is unavailable. ${_firebaseInitError ?? 'Initialization failed.'} Ensure you run on Android/iOS with Firebase config files in place.';
+      DebugLogger.warning(
+        'Secondary account provisioning attempted with unavailable Firebase: $error',
+      );
+      return AuthProvisionResult.failed(error);
     }
 
     FirebaseApp? secondaryApp;
+
     try {
       try {
         secondaryApp = Firebase.app('admin-provisioning');
       } on FirebaseException {
-        secondaryApp = await Firebase.initializeApp(name: 'admin-provisioning', options: DefaultFirebaseOptions.currentPlatform);
+        secondaryApp = await Firebase.initializeApp(
+          name: 'admin-provisioning',
+          options: DefaultFirebaseOptions.currentPlatform,
+        );
       }
 
       final secondaryAuth = FirebaseAuth.instanceFor(app: secondaryApp);
-      final credential = await secondaryAuth.createUserWithEmailAndPassword(email: email, password: password);
+
+      final credential = await secondaryAuth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
       final uid = credential.user?.uid;
+
       await secondaryAuth.signOut();
-      return uid;
+
+      if (uid == null || uid.trim().isEmpty) {
+        return AuthProvisionResult.failed(
+          'Account was created, but Firebase did not return a user ID.',
+        );
+      }
+
+      return AuthProvisionResult.created(uid);
     } on FirebaseAuthException catch (e) {
-      final message = _professionalAuthMessage(e.code, fallback: 'Account creation failed. Please check the details and try again.');
-      DebugLogger.warning('Secondary account provisioning failed for $email: ${e.code}', e);
-      return message;
+      final message = _professionalAuthMessage(
+        e.code,
+        fallback: 'Account creation failed. Please check the details and try again.',
+      );
+
+      DebugLogger.warning(
+        'Secondary account provisioning failed for $email: ${e.code}',
+        e,
+      );
+
+      return AuthProvisionResult.failed(message);
     } catch (e) {
-      DebugLogger.error('Unexpected secondary account provisioning error for $email', e);
-      return 'Account creation failed';
+      DebugLogger.error(
+        'Unexpected secondary account provisioning error for $email',
+        e,
+      );
+
+      return AuthProvisionResult.failed('Account creation failed.');
     } finally {
       if (secondaryApp != null) {
         try {
@@ -256,42 +317,60 @@ class AuthService {
     }
   }
 
-  /// Reauthenticate the current user with email/password, then delete the account.
-  /// This handles Firebase's recent-login requirement for sensitive deletes.
-  Future<String?> reauthenticateAndDeleteWithPassword({required String password}) async {
+  /// Reauthenticate the current user with email/password.
+  /// Used before destructive account operations so data is not deleted when
+  /// the password is wrong.
+  Future<String?> reauthenticateWithPassword({required String password}) async {
     if (!_firebaseInitialized) {
       await initializeFirebase();
     }
 
     if (!_firebaseInitialized) {
-      return 'Firebase is unavailable. Cannot delete account.';
+      return 'Firebase is unavailable. Cannot verify the account.';
     }
 
     final user = FirebaseAuth.instance.currentUser;
     final email = user?.email;
     if (user == null || email == null || email.isEmpty) {
-      return 'No authenticated account is available for deletion.';
+      return 'No authenticated account is available.';
     }
 
     try {
-      final credential = EmailAuthProvider.credential(email: email, password: password);
+      final credential = EmailAuthProvider.credential(
+        email: email,
+        password: password,
+      );
       await user.reauthenticateWithCredential(credential);
-      await user.delete();
-      DebugLogger.info('User account deleted after reauthentication');
+      DebugLogger.info('User reauthenticated');
       return null;
     } on FirebaseAuthException catch (e) {
-      DebugLogger.warning('reauthenticateAndDeleteWithPassword failed: ${e.code}', e);
-      if (e.code == 'wrong-password') {
+      DebugLogger.warning('reauthenticateWithPassword failed: ${e.code}', e);
+      if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
         return 'The password did not match. Please try again.';
       }
-      if (e.code == 'requires-recent-login') {
-        return 'Please sign in again and retry account deletion.';
+      if (e.code == 'too-many-requests') {
+        return 'Too many attempts. Please wait and try again later.';
       }
-      return e.message ?? 'Failed to delete account';
+      if (e.code == 'network-request-failed') {
+        return 'Network error. Check your connection and try again.';
+      }
+      return e.message ?? 'Failed to verify the account.';
     } catch (e) {
-      DebugLogger.error('Unexpected reauthenticateAndDeleteWithPassword error', e);
-      return 'Failed to delete account';
+      DebugLogger.error('Unexpected reauthenticateWithPassword error', e);
+      return 'Failed to verify the account.';
     }
+  }
+
+  /// Reauthenticate the current user with email/password, then delete the account.
+  /// Kept for backwards compatibility. New code should call
+  /// [reauthenticateWithPassword], delete required Firestore data, then call
+  /// [deleteCurrentUser].
+  Future<String?> reauthenticateAndDeleteWithPassword({required String password}) async {
+    final reauthError = await reauthenticateWithPassword(password: password);
+    if (reauthError != null) {
+      return reauthError;
+    }
+    return deleteCurrentUser();
   }
 
   Future<String?> reauthenticateAndUpdatePassword({required String currentPassword, required String newPassword}) async {
@@ -343,6 +422,12 @@ class AuthService {
         return 'The password you entered is incorrect.';
       case 'invalid-email':
         return 'Please enter a valid email address.';
+      case 'email-already-in-use':
+        return 'An account already exists with this email address.';
+      case 'weak-password':
+        return 'The password is too weak. Use at least 6 characters.';
+      case 'missing-password':
+        return 'Password is required.';
       case 'user-not-found':
         return 'No account matches that email address.';
       case 'user-disabled':

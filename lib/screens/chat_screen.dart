@@ -7,7 +7,6 @@ import '../providers/app_state.dart';
 import '../models/chat_session.dart';
 import '../theme/app_theme.dart';
 import '../widgets/disclaimer_banner.dart';
-import 'ai_setup_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -24,27 +23,6 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final appState = context.read<AppState>();
-      if (appState.apiUrl.trim().isEmpty) {
-        showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('AI Endpoint Required'),
-            content: const Text('To use the AI assistant, please configure your laptop AI endpoint. Open the setup screen now?'),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Later')),
-              FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Open Setup')),
-            ],
-          ),
-        ).then((open) {
-          if (open == true) {
-                                                              if (!mounted) return;
-                                                              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AiSetupScreen()));
-          }
-        });
-      }
-    });
   }
 
   @override
@@ -54,13 +32,18 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _send() async {
+    final appState = context.read<AppState>();
+    if (appState.isChatLoading) {
+      return;
+    }
+
     final text = _controller.text.trim();
     if (text.isEmpty) {
       return;
     }
 
     _controller.clear();
-    await context.read<AppState>().askAssistantWithMode(text, chatMode: context.read<AppState>().chatMode);
+    await appState.askAssistantWithMode(text, chatMode: appState.chatMode);
   }
 
   Future<void> _newChat(AppState appState) async {
@@ -347,14 +330,6 @@ class _ChatScreenState extends State<ChatScreen> {
                                                           mainAxisSize: MainAxisSize.min,
                                                           children: [
                                                             OutlinedButton(
-                                                              onPressed: () {
-                                                                if (!mounted) return;
-                                                                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AiSetupScreen()));
-                                                              },
-                                                              child: const Text('Open Setup'),
-                                                            ),
-                                                            const SizedBox(width: 8),
-                                                            OutlinedButton(
                                                               onPressed: _testingConnection
                                                                   ? null
                                                                   : () async {
@@ -365,7 +340,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                                                       final messenger = ScaffoldMessenger.of(context);
                                                                       // The surrounding code checks `mounted` before this point.
                                                                       messenger.showSnackBar(SnackBar(
-                                                                        content: Text(ok ? 'AI server reachable.' : 'Could not reach the AI server.'),
+                                                                        content: Text(ok ? 'Local Ollama reachable.' : 'Could not reach local Ollama on this laptop.'),
                                                                         backgroundColor: ok ? Colors.green : Colors.orange,
                                                                       ));
                                                                     },
@@ -531,7 +506,7 @@ class _AssistantReply extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = isError ? AppTheme.warning : const Color(0xFF18324A);
-    final lines = text.replaceAll('*', '').split('\n');
+    final lines = text.split('\n');
     final spans = <TextSpan>[];
 
     for (final rawLine in lines) {
@@ -541,9 +516,14 @@ class _AssistantReply extends StatelessWidget {
         continue;
       }
 
-      final heading = line.startsWith('###') || line.startsWith('##') || line.endsWith(':');
-      final cleaned = line.replaceFirst(RegExp(r'^#{1,3}\s*'), '').trim();
-      final bullet = cleaned.startsWith('- ') || cleaned.startsWith('• ') ? cleaned.replaceFirst(RegExp(r'^(-|•)\s*'), '• ') : cleaned;
+      final markdownHeading = line.startsWith('###') || line.startsWith('##') || line.startsWith('#');
+      final cleanedHeading = line.replaceFirst(RegExp(r'^#{1,3}\s*'), '').trim();
+      final boldHeading = cleanedHeading.startsWith('**') && cleanedHeading.endsWith('**') && cleanedHeading.length > 4;
+      final heading = markdownHeading || boldHeading || cleanedHeading.endsWith(':');
+      final withoutOuterBold = boldHeading ? cleanedHeading.substring(2, cleanedHeading.length - 2).trim() : cleanedHeading;
+      final bullet = withoutOuterBold.startsWith('- ') || withoutOuterBold.startsWith('• ') || withoutOuterBold.startsWith('* ')
+          ? withoutOuterBold.replaceFirst(RegExp(r'^(-|•|\*)\s*'), '• ')
+          : withoutOuterBold;
 
       spans.add(
         TextSpan(
