@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'admin_dashboard_screen.dart';
 import 'admin_management_screen.dart';
 import 'doctor_directory_screen.dart';
 import 'emergency_screen.dart';
@@ -18,6 +19,7 @@ class _AdminShellState extends State<AdminShell> {
   @override
   Widget build(BuildContext context) {
     final screens = [
+      const AdminDashboardScreen(),
       const DoctorDirectoryScreen(),
       const EmergencyScreen(),
       const AdminManagementScreen(),
@@ -42,6 +44,7 @@ class _AdminShellState extends State<AdminShell> {
                   labelType: NavigationRailLabelType.all,
                   minWidth: 84,
                   destinations: const [
+                    NavigationRailDestination(icon: Icon(Icons.dashboard_rounded), label: Text('Overview')),
                     NavigationRailDestination(icon: Icon(Icons.local_hospital_rounded), label: Text('Doctors')),
                     NavigationRailDestination(icon: Icon(Icons.warning_amber_rounded), label: Text('Emergency')),
                     NavigationRailDestination(icon: Icon(Icons.admin_panel_settings_rounded), label: Text('Admins')),
@@ -62,6 +65,7 @@ class _AdminShellState extends State<AdminShell> {
             onDestinationSelected: (index) => setState(() => _currentIndex = index),
             labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
             destinations: const [
+              NavigationDestination(icon: Icon(Icons.dashboard_rounded), label: 'Overview'),
               NavigationDestination(icon: Icon(Icons.local_hospital_rounded), label: 'Doctors'),
               NavigationDestination(icon: Icon(Icons.warning_amber_rounded), label: 'Emergency'),
               NavigationDestination(icon: Icon(Icons.admin_panel_settings_rounded), label: 'Admins'),

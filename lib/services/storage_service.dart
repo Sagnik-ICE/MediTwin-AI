@@ -6,7 +6,7 @@ import '../models/reminder_preferences.dart';
 import '../models/reminder_schedule.dart';
 
 class StorageService {
-  static const String defaultApiUrl = 'http://127.0.0.1:11434/api/generate';
+  static const String defaultApiUrl = 'http://127.0.0.1:11434/api/chat';
 
   static const _themeModeKey = 'dark_mode';
   static const _apiUrlKey = 'api_url';

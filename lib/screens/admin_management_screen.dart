@@ -64,7 +64,18 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
     try {
       final admins = await appState.loadAdmins();
       if (!mounted) return;
+      admins.sort((a, b) {
+        final aMain = (a['email']?.toString().toLowerCase() ?? '') == AppState.mainAdminEmail.toLowerCase();
+        final bMain = (b['email']?.toString().toLowerCase() ?? '') == AppState.mainAdminEmail.toLowerCase();
+        if (aMain != bMain) return aMain ? -1 : 1;
+        return (a['displayName']?.toString() ?? '').compareTo(b['displayName']?.toString() ?? '');
+      });
       setState(() => _admins = admins);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not load admin accounts.')),
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -94,7 +105,7 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
     if (text.isEmpty) return 'Age is required';
     final age = int.tryParse(text);
     if (age == null) return 'Enter a valid age';
-    if (age < 0 || age > 120) return 'Age must be between 0 and 120';
+    if (age < 18 || age > 120) return 'Age must be between 18 and 120';
     return null;
   }
 
@@ -174,7 +185,7 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
     setState(() => _saving = false);
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(error ?? 'Admin added.')),
+      SnackBar(content: Text(error ?? 'Admin account created.')),
     );
 
     if (error == null) {
@@ -192,11 +203,11 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Remove admin?'),
+        title: const Text('Remove admin access?'),
         content: Text(
           email.isEmpty
-              ? 'This admin will be removed from the admin list.'
-              : '$email will be removed from the admin list.',
+              ? 'This account will be removed from the admin registry.'
+              : '$email will be removed from the admin registry.',
         ),
         actions: [
           TextButton(
@@ -221,241 +232,816 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
   Widget build(BuildContext context) {
     return Consumer<AppState>(
       builder: (context, appState, _) {
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Add admin',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Create a Firebase Auth user, full profile, and register it as an admin.',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 14),
-                    Form(
-                      key: _formKey,
-                      child: Column(
-                        children: [
-                          TextFormField(
-                            controller: _nameController,
-                            decoration: const InputDecoration(labelText: 'Full name'),
-                            textInputAction: TextInputAction.next,
-                            validator: (value) => _requiredText(value),
-                          ),
-                          const SizedBox(height: 12),
-                          TextFormField(
-                            controller: _emailController,
-                            keyboardType: TextInputType.emailAddress,
-                            decoration: const InputDecoration(labelText: 'Email'),
-                            textInputAction: TextInputAction.next,
-                            validator: _validateEmail,
-                          ),
-                          const SizedBox(height: 12),
-                          TextFormField(
-                            controller: _ageController,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(labelText: 'Age'),
-                            textInputAction: TextInputAction.next,
-                            validator: _validateAge,
-                          ),
-                          const SizedBox(height: 12),
-                          DropdownButtonFormField<String>(
-                            initialValue: _gender.isEmpty ? null : _gender,
-                            decoration: const InputDecoration(labelText: 'Gender'),
-                            items: const ['Male', 'Female']
-                                .map(
-                                  (item) => DropdownMenuItem(
-                                    value: item,
-                                    child: Text(item),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (value) => setState(() => _gender = value ?? ''),
-                            validator: (value) => value == null || value.isEmpty ? 'Required' : null,
-                          ),
-                          const SizedBox(height: 12),
-                          DropdownButtonFormField<String>(
-                            initialValue: _bloodGroup.isEmpty ? null : _bloodGroup,
-                            decoration: const InputDecoration(labelText: 'Blood group'),
-                            items: const ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
-                                .map(
-                                  (item) => DropdownMenuItem(
-                                    value: item,
-                                    child: Text(item),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (value) => setState(() => _bloodGroup = value ?? ''),
-                            validator: (value) => value == null || value.isEmpty ? 'Required' : null,
-                          ),
-                          const SizedBox(height: 12),
-                          TextFormField(
-                            controller: _contactController,
-                            decoration: const InputDecoration(labelText: 'Contact info'),
-                            keyboardType: TextInputType.phone,
-                            textInputAction: TextInputAction.next,
-                            validator: (value) => _requiredText(value),
-                          ),
-                          const SizedBox(height: 12),
-                          TextFormField(
-                            controller: _heightController,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            decoration: const InputDecoration(labelText: 'Height (cm)'),
-                            textInputAction: TextInputAction.next,
-                            validator: _validateHeight,
-                          ),
-                          const SizedBox(height: 12),
-                          TextFormField(
-                            controller: _weightController,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            decoration: const InputDecoration(labelText: 'Weight (kg)'),
-                            textInputAction: TextInputAction.next,
-                            validator: _validateWeight,
-                          ),
-                          const SizedBox(height: 12),
-                          TextFormField(
-                            controller: _goalsController,
-                            decoration: const InputDecoration(labelText: 'Health goals'),
-                            maxLines: 2,
-                            validator: (value) => _requiredText(value),
-                          ),
-                          const SizedBox(height: 12),
-                          DropdownButtonFormField<String>(
-                            initialValue: _division.isEmpty ? null : _division,
-                            decoration: const InputDecoration(labelText: 'Division'),
-                            items: BdLocations.divisions
-                                .map(
-                                  (item) => DropdownMenuItem(
-                                    value: item,
-                                    child: Text(item),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (value) {
-                              setState(() {
-                                _division = value ?? '';
-                                _district = '';
-                              });
-                            },
-                            validator: (value) => value == null || value.isEmpty ? 'Required' : null,
-                          ),
-                          const SizedBox(height: 12),
-                          DropdownButtonFormField<String>(
-                            initialValue: _district.isEmpty ? null : _district,
-                            decoration: const InputDecoration(labelText: 'District'),
-                            items: BdLocations.districts
-                                .map(
-                                  (item) => DropdownMenuItem(
-                                    value: item,
-                                    child: Text(item),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (value) => setState(() => _district = value ?? ''),
-                            validator: (value) => value == null || value.isEmpty ? 'Required' : null,
-                          ),
-                          const SizedBox(height: 12),
-                          TextFormField(
-                            controller: _passwordController,
-                            obscureText: true,
-                            decoration: const InputDecoration(labelText: 'Password'),
-                            validator: _validatePassword,
-                          ),
-                          const SizedBox(height: 16),
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton.icon(
-                              onPressed: _saving ? null : () => _addAdmin(appState),
-                              icon: _saving
-                                  ? const SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : const Icon(Icons.person_add_alt_1_rounded),
-                              label: Text(_saving ? 'Creating...' : 'Create admin'),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final wide = constraints.maxWidth >= 1050;
+            return Container(
+              color: Theme.of(context).colorScheme.surface,
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(wide ? 28 : 18, 18, wide ? 28 : 18, 32),
+                children: [
+                  _HeroPanel(
+                    adminCount: _admins.length,
+                    loading: _loading,
+                    onRefresh: () => _loadAdmins(appState),
+                  ),
+                  const SizedBox(height: 18),
+                  if (wide)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(flex: 7, child: _buildCreatePanel(context, appState, wide: true)),
+                        const SizedBox(width: 18),
+                        Expanded(flex: 5, child: _buildAdminsPanel(context, appState)),
+                      ],
+                    )
+                  else ...[
+                    _buildCreatePanel(context, appState, wide: false),
+                    const SizedBox(height: 18),
+                    _buildAdminsPanel(context, appState),
                   ],
-                ),
+                ],
               ),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Admins',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Current admin accounts registered in Firestore.',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 12),
-                    if (_loading)
-                      const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(12),
-                          child: CircularProgressIndicator(),
-                        ),
-                      )
-                    else if (_admins.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8),
-                        child: Text('No additional admins found.'),
-                      )
-                    else
-                      for (final admin in _admins)
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: const Icon(Icons.admin_panel_settings_rounded),
-                          title: Text(
-                            admin['displayName']?.toString().isNotEmpty == true
-                                ? admin['displayName'].toString()
-                                : admin['email']?.toString() ?? 'Admin',
-                          ),
-                          subtitle: Text(
-                            '${admin['email'] ?? ''}\nUID: ${admin['uid'] ?? admin['id'] ?? ''}',
-                          ),
-                          isThreeLine: true,
-                          trailing: admin['email']?.toString().toLowerCase() == AppState.mainAdminEmail
-                              ? const Chip(label: Text('Main admin'))
-                              : IconButton(
-                                  tooltip: 'Remove admin',
-                                  onPressed: () => _removeAdmin(appState, admin),
-                                  icon: const Icon(Icons.delete_rounded),
-                                ),
-                        ),
-                  ],
-                ),
-              ),
-            ),
-          ],
+            );
+          },
         );
       },
+    );
+  }
+
+  Widget _buildCreatePanel(BuildContext context, AppState appState, {required bool wide}) {
+    final colors = Theme.of(context).colorScheme;
+    final districts = _division.isEmpty ? const <String>[] : BdLocations.districtsFor(_division);
+
+    return _SectionCard(
+      padding: const EdgeInsets.all(22),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _SectionHeader(
+              icon: Icons.admin_panel_settings_rounded,
+              title: 'Create admin account',
+              subtitle: 'Provision a secure admin login and profile in one controlled flow.',
+            ),
+            const SizedBox(height: 22),
+            _FormSectionTitle('Identity'),
+            const SizedBox(height: 12),
+            _ResponsiveFields(
+              wide: wide,
+              children: [
+                TextFormField(
+                  controller: _nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Full name',
+                    prefixIcon: Icon(Icons.person_outline_rounded),
+                  ),
+                  textInputAction: TextInputAction.next,
+                  validator: (value) => _requiredText(value, label: 'Name is required'),
+                ),
+                TextFormField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: 'Email address',
+                    prefixIcon: Icon(Icons.alternate_email_rounded),
+                  ),
+                  textInputAction: TextInputAction.next,
+                  validator: _validateEmail,
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            TextFormField(
+              controller: _passwordController,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Temporary password',
+                prefixIcon: Icon(Icons.lock_outline_rounded),
+                helperText: 'Minimum 6 characters. The admin can change it later.',
+              ),
+              validator: _validatePassword,
+            ),
+            const SizedBox(height: 24),
+            _FormSectionTitle('Profile details'),
+            const SizedBox(height: 12),
+            _ResponsiveFields(
+              wide: wide,
+              children: [
+                TextFormField(
+                  controller: _ageController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Age',
+                    prefixIcon: Icon(Icons.cake_outlined),
+                  ),
+                  textInputAction: TextInputAction.next,
+                  validator: _validateAge,
+                ),
+                DropdownButtonFormField<String>(
+                  initialValue: _gender.isEmpty ? null : _gender,
+                  decoration: const InputDecoration(
+                    labelText: 'Gender',
+                    prefixIcon: Icon(Icons.wc_rounded),
+                  ),
+                  items: const ['Male', 'Female', 'Other']
+                      .map((item) => DropdownMenuItem(value: item, child: Text(item)))
+                      .toList(),
+                  onChanged: _saving ? null : (value) => setState(() => _gender = value ?? ''),
+                  validator: (value) => value == null || value.isEmpty ? 'Required' : null,
+                ),
+                DropdownButtonFormField<String>(
+                  initialValue: _bloodGroup.isEmpty ? null : _bloodGroup,
+                  decoration: const InputDecoration(
+                    labelText: 'Blood group',
+                    prefixIcon: Icon(Icons.bloodtype_outlined),
+                  ),
+                  items: const ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
+                      .map((item) => DropdownMenuItem(value: item, child: Text(item)))
+                      .toList(),
+                  onChanged: _saving ? null : (value) => setState(() => _bloodGroup = value ?? ''),
+                  validator: (value) => value == null || value.isEmpty ? 'Required' : null,
+                ),
+                TextFormField(
+                  controller: _contactController,
+                  decoration: const InputDecoration(
+                    labelText: 'Contact number',
+                    prefixIcon: Icon(Icons.call_outlined),
+                  ),
+                  keyboardType: TextInputType.phone,
+                  textInputAction: TextInputAction.next,
+                  validator: (value) => _requiredText(value, label: 'Contact is required'),
+                ),
+                TextFormField(
+                  controller: _heightController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Height (cm)',
+                    prefixIcon: Icon(Icons.height_rounded),
+                  ),
+                  textInputAction: TextInputAction.next,
+                  validator: _validateHeight,
+                ),
+                TextFormField(
+                  controller: _weightController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Weight (kg)',
+                    prefixIcon: Icon(Icons.monitor_weight_outlined),
+                  ),
+                  textInputAction: TextInputAction.next,
+                  validator: _validateWeight,
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            TextFormField(
+              controller: _goalsController,
+              decoration: const InputDecoration(
+                labelText: 'Health goals / notes',
+                prefixIcon: Icon(Icons.notes_rounded),
+              ),
+              maxLines: 2,
+              validator: (value) => _requiredText(value, label: 'Profile note is required'),
+            ),
+            const SizedBox(height: 24),
+            _FormSectionTitle('Location'),
+            const SizedBox(height: 12),
+            _ResponsiveFields(
+              wide: wide,
+              children: [
+                DropdownButtonFormField<String>(
+                  initialValue: _division.isEmpty ? null : _division,
+                  decoration: const InputDecoration(
+                    labelText: 'Division',
+                    prefixIcon: Icon(Icons.map_outlined),
+                  ),
+                  items: BdLocations.divisions
+                      .map((item) => DropdownMenuItem(value: item, child: Text(item)))
+                      .toList(),
+                  onChanged: _saving
+                      ? null
+                      : (value) {
+                          setState(() {
+                            _division = value ?? '';
+                            _district = '';
+                          });
+                        },
+                  validator: (value) => value == null || value.isEmpty ? 'Required' : null,
+                ),
+                DropdownButtonFormField<String>(
+                  initialValue: _district.isEmpty ? null : _district,
+                  decoration: const InputDecoration(
+                    labelText: 'District',
+                    prefixIcon: Icon(Icons.location_city_outlined),
+                  ),
+                  items: districts
+                      .map((item) => DropdownMenuItem(value: item, child: Text(item)))
+                      .toList(),
+                  onChanged: _saving || _division.isEmpty
+                      ? null
+                      : (value) => setState(() => _district = value ?? ''),
+                  validator: (value) => value == null || value.isEmpty ? 'Required' : null,
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: colors.primaryContainer.withOpacity(0.24),
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: colors.primary.withOpacity(0.12)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.verified_user_rounded, color: colors.primary),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Admin access is restricted. New admins can manage doctors, emergency resources, and admin-only dashboards.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: colors.onSurfaceVariant,
+                            height: 1.4,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 22),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _saving ? null : _clearForm,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('Clear form'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: wide ? 2 : 1,
+                  child: FilledButton.icon(
+                    onPressed: _saving ? null : () => _addAdmin(appState),
+                    icon: _saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.person_add_alt_1_rounded),
+                    label: Text(_saving ? 'Creating...' : 'Create admin'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAdminsPanel(BuildContext context, AppState appState) {
+    final colors = Theme.of(context).colorScheme;
+    final mainAdmin = _admins.where((admin) {
+      return (admin['email']?.toString().toLowerCase() ?? '') == AppState.mainAdminEmail.toLowerCase();
+    }).length;
+    final additionalAdmins = (_admins.length - mainAdmin).clamp(0, _admins.length);
+
+    return _SectionCard(
+      padding: const EdgeInsets.all(22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: _SectionHeader(
+                  icon: Icons.group_rounded,
+                  title: 'Admin registry',
+                  subtitle: 'Accounts with elevated workspace access.',
+                ),
+              ),
+              IconButton.filledTonal(
+                tooltip: 'Refresh',
+                onPressed: _loading ? null : () => _loadAdmins(appState),
+                icon: _loading
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.refresh_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(child: _MiniStat(label: 'Total', value: '${_admins.length}', icon: Icons.admin_panel_settings_rounded)),
+              const SizedBox(width: 10),
+              Expanded(child: _MiniStat(label: 'Added', value: '$additionalAdmins', icon: Icons.person_add_alt_rounded)),
+            ],
+          ),
+          const SizedBox(height: 18),
+          if (_loading && _admins.isEmpty)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(28),
+                child: CircularProgressIndicator(),
+              ),
+            )
+          else if (_admins.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(22),
+              decoration: BoxDecoration(
+                color: colors.surfaceContainerHighest.withOpacity(0.35),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: colors.outlineVariant.withOpacity(0.7)),
+              ),
+              child: Column(
+                children: [
+                  Icon(Icons.admin_panel_settings_outlined, size: 34, color: colors.onSurfaceVariant),
+                  const SizedBox(height: 10),
+                  Text(
+                    'No additional admins found',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Created admins will appear here.',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
+                  ),
+                ],
+              ),
+            )
+          else
+            ..._admins.map((admin) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _AdminAccountCard(
+                    admin: admin,
+                    onRemove: () => _removeAdmin(appState, admin),
+                  ),
+                )),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeroPanel extends StatelessWidget {
+  const _HeroPanel({
+    required this.adminCount,
+    required this.loading,
+    required this.onRefresh,
+  });
+
+  final int adminCount;
+  final bool loading;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(26),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [colors.primary, colors.tertiary],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(32),
+        boxShadow: [
+          BoxShadow(
+            color: colors.primary.withOpacity(0.18),
+            blurRadius: 28,
+            offset: const Offset(0, 16),
+          ),
+        ],
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final wide = constraints.maxWidth >= 720;
+          final titleBlock = _HeroTitleBlock(colors: colors);
+          final statBlock = _HeroStatBlock(
+            adminCount: adminCount,
+            loading: loading,
+            onRefresh: onRefresh,
+            wide: wide,
+          );
+
+          if (wide) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: titleBlock),
+                const SizedBox(width: 20),
+                SizedBox(width: 240, child: statBlock),
+              ],
+            );
+          }
+
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              titleBlock,
+              const SizedBox(height: 18),
+              statBlock,
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _HeroTitleBlock extends StatelessWidget {
+  const _HeroTitleBlock({required this.colors});
+
+  final ColorScheme colors;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.18),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white.withOpacity(0.22)),
+          ),
+          child: const Icon(Icons.admin_panel_settings_rounded, color: Colors.white, size: 30),
+        ),
+        const SizedBox(height: 18),
+        Text(
+          'Admin management',
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.7,
+              ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Create admin accounts, review elevated access, and keep the workspace controlled.',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: Colors.white.withOpacity(0.88),
+                height: 1.35,
+                fontWeight: FontWeight.w600,
+              ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HeroStatBlock extends StatelessWidget {
+  const _HeroStatBlock({
+    required this.adminCount,
+    required this.loading,
+    required this.onRefresh,
+    required this.wide,
+  });
+
+  final int adminCount;
+  final bool loading;
+  final VoidCallback onRefresh;
+  final bool wide;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: wide ? CrossAxisAlignment.stretch : CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.16),
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(color: Colors.white.withOpacity(0.24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                loading ? '—' : '$adminCount',
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                    ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Registered admins',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.white.withOpacity(0.86),
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: loading ? null : onRefresh,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.white,
+            disabledForegroundColor: Colors.white.withOpacity(0.55),
+            side: BorderSide(color: Colors.white.withOpacity(0.38)),
+            backgroundColor: Colors.white.withOpacity(0.08),
+          ),
+          icon: const Icon(Icons.refresh_rounded),
+          label: const Text('Refresh'),
+        ),
+      ],
+    );
+  }
+}
+
+class _SectionCard extends StatelessWidget {
+  const _SectionCard({required this.child, this.padding = const EdgeInsets.all(20)});
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: colors.outlineVariant.withOpacity(0.72)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.035),
+            blurRadius: 24,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Padding(padding: padding, child: child),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+            color: colors.primaryContainer.withOpacity(0.55),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Icon(icon, color: colors.primary),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.25,
+                    ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: colors.onSurfaceVariant,
+                      height: 1.35,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _FormSectionTitle extends StatelessWidget {
+  const _FormSectionTitle(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: colors.primary, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+        ),
+      ],
+    );
+  }
+}
+
+class _ResponsiveFields extends StatelessWidget {
+  const _ResponsiveFields({required this.children, required this.wide});
+
+  final List<Widget> children;
+  final bool wide;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!wide) {
+      return Column(
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            children[i],
+            if (i != children.length - 1) const SizedBox(height: 12),
+          ],
+        ],
+      );
+    }
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: children.map((child) {
+        return SizedBox(width: 310, child: child);
+      }).toList(),
+    );
+  }
+}
+
+class _MiniStat extends StatelessWidget {
+  const _MiniStat({required this.label, required this.value, required this.icon});
+
+  final String label;
+  final String value;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest.withOpacity(0.42),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: colors.outlineVariant.withOpacity(0.65)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: colors.primary, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(value, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
+                Text(label, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AdminAccountCard extends StatelessWidget {
+  const _AdminAccountCard({required this.admin, required this.onRemove});
+
+  final Map<String, dynamic> admin;
+  final VoidCallback onRemove;
+
+  bool get _isMainAdmin => (admin['email']?.toString().toLowerCase() ?? '') == AppState.mainAdminEmail.toLowerCase();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final name = admin['displayName']?.toString().trim().isNotEmpty == true
+        ? admin['displayName'].toString().trim()
+        : 'Admin account';
+    final email = admin['email']?.toString() ?? '';
+    final uid = admin['uid']?.toString().isNotEmpty == true ? admin['uid'].toString() : admin['id']?.toString() ?? '';
+    final initial = name.trim().isEmpty ? 'A' : name.trim()[0].toUpperCase();
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _isMainAdmin ? colors.primaryContainer.withOpacity(0.32) : colors.surfaceContainerHighest.withOpacity(0.34),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: _isMainAdmin ? colors.primary.withOpacity(0.18) : colors.outlineVariant.withOpacity(0.68),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: _isMainAdmin ? colors.primary : colors.primaryContainer,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Center(
+              child: Text(
+                initial,
+                style: TextStyle(
+                  color: _isMainAdmin ? colors.onPrimary : colors.primary,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 18,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                    if (_isMainAdmin)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: colors.primary.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          'Main',
+                          style: TextStyle(color: colors.primary, fontWeight: FontWeight.w800, fontSize: 12),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  email,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
+                ),
+                if (uid.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'UID: $uid',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (!_isMainAdmin)
+            IconButton.filledTonal(
+              tooltip: 'Remove admin',
+              onPressed: onRemove,
+              icon: const Icon(Icons.delete_outline_rounded),
+            ),
+        ],
+      ),
     );
   }
 }

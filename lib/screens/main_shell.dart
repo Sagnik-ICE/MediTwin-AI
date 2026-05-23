@@ -4,6 +4,7 @@ import 'analytics_screen.dart';
 import 'chat_screen.dart';
 import 'emergency_screen.dart';
 import 'home_dashboard_screen.dart';
+import 'my_appointments_screen.dart';
 import 'settings_screen.dart';
 import 'doctor_directory_screen.dart';
 import 'tracking_screen.dart';
@@ -25,6 +26,7 @@ class _MainShellState extends State<MainShell> {
       const ChatScreen(),
       const AnalyticsScreen(),
       const DoctorDirectoryScreen(),
+      const MyAppointmentsScreen(),
       const EmergencyScreen(),
       const SettingsScreen(),
     ];
@@ -33,7 +35,9 @@ class _MainShellState extends State<MainShell> {
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 1024;
         final body = AnimatedSwitcher(
-          duration: const Duration(milliseconds: 260),
+          duration: const Duration(milliseconds: 240),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
           child: KeyedSubtree(key: ValueKey(_currentIndex), child: screens[_currentIndex]),
         );
 
@@ -45,12 +49,14 @@ class _MainShellState extends State<MainShell> {
                   selectedIndex: _currentIndex,
                   onDestinationSelected: (index) => setState(() => _currentIndex = index),
                   labelType: NavigationRailLabelType.all,
-                  minWidth: 84,
+                  minWidth: 88,
+                  groupAlignment: -0.92,
                   destinations: const [
                     NavigationRailDestination(icon: Icon(Icons.home_rounded), label: Text('Home')),
                     NavigationRailDestination(icon: Icon(Icons.chat_bubble_rounded), label: Text('Chat')),
                     NavigationRailDestination(icon: Icon(Icons.insights_rounded), label: Text('Analytics')),
                     NavigationRailDestination(icon: Icon(Icons.local_hospital_rounded), label: Text('Doctors')),
+                    NavigationRailDestination(icon: Icon(Icons.event_note_rounded), label: Text('Appointments')),
                     NavigationRailDestination(icon: Icon(Icons.warning_amber_rounded), label: Text('Emergency')),
                     NavigationRailDestination(icon: Icon(Icons.settings_rounded), label: Text('Settings')),
                   ],
@@ -73,6 +79,7 @@ class _MainShellState extends State<MainShell> {
               NavigationDestination(icon: Icon(Icons.chat_bubble_rounded), label: 'Chat'),
               NavigationDestination(icon: Icon(Icons.insights_rounded), label: 'Analytics'),
               NavigationDestination(icon: Icon(Icons.local_hospital_rounded), label: 'Doctors'),
+              NavigationDestination(icon: Icon(Icons.event_note_rounded), label: 'Appointments'),
               NavigationDestination(icon: Icon(Icons.warning_amber_rounded), label: 'Emergency'),
               NavigationDestination(icon: Icon(Icons.settings_rounded), label: 'Settings'),
             ],

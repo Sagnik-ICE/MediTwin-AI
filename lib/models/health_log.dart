@@ -63,6 +63,29 @@ class HealthLog {
     };
   }
 
+  /// Firestore-specific serialization.
+  ///
+  /// Keep [toMap] as JSON-safe ISO strings because local backup/offline storage
+  /// uses JSON encoding. Use this method only for cloud writes so Firestore can
+  /// store dates as real timestamp values.
+  Map<String, dynamic> toFirestoreMap() {
+    return {
+      'date': Timestamp.fromDate(date),
+      'sleepHours': sleepHours,
+      'waterGlasses': waterGlasses,
+      'stressLevel': stressLevel,
+      'mood': mood,
+      'exerciseMinutes': exerciseMinutes,
+      'symptoms': symptoms,
+      'foodQuality': foodQuality,
+      'weight': weight,
+      'notes': notes,
+      'healthScore': healthScore,
+      'riskFlags': riskFlags,
+      'insight': insight,
+    };
+  }
+
   factory HealthLog.fromMap(Map<String, dynamic> map) {
     return HealthLog(
       date: _dateFromValue(map['date']),

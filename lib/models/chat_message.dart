@@ -22,6 +22,19 @@ class ChatMessage {
     };
   }
 
+  /// Firestore-specific serialization.
+  ///
+  /// Keep [toMap] JSON-safe for local storage. Use this for cloud writes so
+  /// Firestore stores timestamps as native timestamp values.
+  Map<String, dynamic> toFirestoreMap() {
+    return {
+      'text': text,
+      'isUser': isUser,
+      'timestamp': Timestamp.fromDate(timestamp),
+      'isError': isError,
+    };
+  }
+
   factory ChatMessage.fromMap(Map<String, dynamic> map) {
     return ChatMessage(
       text: _stringFromValue(map['text']),

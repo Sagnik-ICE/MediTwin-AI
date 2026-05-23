@@ -21,6 +21,9 @@ import '../services/notification_service.dart';
 
 class AppState extends ChangeNotifier {
   static const String mainAdminEmail = 'dibbay242-50-014@diu.edu.bd';
+  static const int maxStoredHealthLogs = 500;
+  static const int maxStoredChatSessions = 20;
+  static const int maxStoredChatMessagesPerSession = 200;
 
   factory AppState({
     required StorageService storageService,
@@ -153,19 +156,107 @@ class AppState extends ChangeNotifier {
   int get todayScore => todayLog?.healthScore ?? 0;
 
   List<String> get memoryHints {
+    final hints = <String>[];
+
     if (logs.isEmpty) {
-      return const ['No health logs yet'];
+      hints.add('No health logs yet');
+    } else {
+      final latest = latestLog!;
+      hints.addAll([
+        weeklyMemorySummary,
+        'Latest score ${latest.healthScore}',
+        'Sleep ${latest.sleepHours}h',
+        'Stress ${latest.stressLevel}/10',
+        'Hydration ${latest.waterGlasses} glasses',
+        if (latest.symptoms.isNotEmpty) 'Latest logged symptoms: ${latest.symptoms.take(4).join(', ')}',
+        if (latest.riskFlags.isNotEmpty) latest.riskFlags.first,
+      ]);
     }
-    final latest = latestLog!;
-    return [
-      weeklyMemorySummary,
-      'Latest score ${latest.healthScore}',
-      'Sleep ${latest.sleepHours}h',
-      'Stress ${latest.stressLevel}/10',
-      'Hydration ${latest.waterGlasses} glasses',
-      if (latest.riskFlags.isNotEmpty) latest.riskFlags.first,
-      if (profile.healthGoals.isNotEmpty) 'Goal focus: ${profile.healthGoals}',
-    ];
+
+    final goals = profile.healthGoals.trim();
+    if (goals.isNotEmpty) {
+      hints.add('User goal/focus: $goals');
+    }
+
+    final contactInfo = profile.contactInfo.trim();
+    if (contactInfo.isNotEmpty) {
+      hints.add('Profile note: $contactInfo');
+    }
+
+    hints.addAll(_learnedConversationMemoryHints);
+
+    final seen = <String>{};
+    return hints
+        .map((hint) => hint.trim())
+        .where((hint) => hint.isNotEmpty)
+        .where((hint) => seen.add(hint.toLowerCase()))
+        .take(14)
+        .toList(growable: false);
+  }
+
+  List<String> get _learnedConversationMemoryHints {
+    final userMessages = chatSessions
+        .expand((session) => session.messages)
+        .where((message) => message.isUser && message.text.trim().isNotEmpty)
+        .toList()
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
+    if (userMessages.isEmpty) {
+      return const [];
+    }
+
+    final recentText = userMessages.take(36).map((message) => message.text.toLowerCase()).join(' | ');
+    final hints = <String>[];
+    final symptoms = <String, List<String>>{
+      'headache': ['headache', 'head pain', 'migraine'],
+      'dizziness': ['dizzy', 'dizziness', 'lightheaded', 'vertigo'],
+      'nausea': ['nausea', 'nauseous', 'vomit', 'vomiting'],
+      'fever': ['fever', 'temperature'],
+      'cough': ['cough'],
+      'fatigue': ['fatigue', 'tired', 'weakness', 'weak'],
+      'sleep difficulty': ['insomnia', 'cannot sleep', 'can not sleep', 'poor sleep'],
+      'stress': ['stress', 'anxiety', 'anxious', 'panic'],
+      'chest pain': ['chest pain', 'chest tightness'],
+      'breathing difficulty': ['shortness of breath', 'trouble breathing', 'can not breathe', "can't breathe"],
+      'stomach discomfort': ['stomach pain', 'abdominal pain', 'diarrhea', 'gastric'],
+    };
+
+    final mentioned = <String>[];
+    for (final entry in symptoms.entries) {
+      if (entry.value.any((term) => recentText.contains(term))) {
+        mentioned.add(entry.key);
+      }
+    }
+
+    if (mentioned.isNotEmpty) {
+      hints.add('Recently discussed symptoms: ${mentioned.take(6).join(', ')}');
+    }
+
+    final patterns = <String, String>{
+      'Symptoms may relate to meals or food timing.': r'\b(after eating|after meal|empty stomach|skipped meal|food|meal)\b',
+      'Symptoms may relate to hydration.': r'\b(dehydrated|hydration|water|not drinking|drink water)\b',
+      'Symptoms may relate to sleep or rest.': r'\b(sleep|slept|tired|rest|night)\b',
+      'Symptoms may relate to stress.': r'\b(stress|anxiety|anxious|panic|overthinking)\b',
+      'User may prefer brief, direct responses.': r'\b(short answer|brief|keep it short|quickly)\b',
+    };
+
+    for (final entry in patterns.entries) {
+      if (RegExp(entry.value).hasMatch(recentText)) {
+        hints.add(entry.key);
+      }
+    }
+
+    final latestUseful = userMessages
+        .map((message) => message.text.trim())
+        .where((text) => text.length >= 8 && text.length <= 120)
+        .take(3)
+        .toList();
+
+    if (latestUseful.isNotEmpty) {
+      hints.add('Recent user details: ${latestUseful.join(' / ')}');
+    }
+
+    return hints;
   }
 
   String get weeklyMemorySummary {
@@ -246,7 +337,7 @@ class AppState extends ChangeNotifier {
       insight: HealthScoreService.buildInsight(rawLog),
     );
 
-    logs = [finalLog, ...logs];
+    logs = [finalLog, ...logs].take(maxStoredHealthLogs).toList();
     // Prefer cloud sync; if unavailable or fails, persist locally.
     try {
       if (_authService.canUseFirebase && _authService.currentUserId != null) {
@@ -279,13 +370,13 @@ class AppState extends ChangeNotifier {
       timestamp: DateTime.now(),
     );
 
-    _replaceActiveChatSession(
-      currentSession.copyWith(
-        title: _titleForSession(currentSession, normalizedUserText),
-        updatedAt: DateTime.now(),
-        messages: [...currentSession.messages, userMessage],
-      ),
+    final requestSession = currentSession.copyWith(
+      title: _titleForSession(currentSession, normalizedUserText),
+      updatedAt: DateTime.now(),
+      messages: [...currentSession.messages, userMessage],
     );
+
+    _replaceActiveChatSession(requestSession);
 
     isChatLoading = true;
     notifyListeners();
@@ -299,6 +390,7 @@ class AppState extends ChangeNotifier {
         apiUrl: endpoint,
         memoryHints: memoryHints,
         chatMode: chatMode,
+        conversationHistory: requestSession.messages,
       );
     } catch (e, st) {
       DebugLogger.warning('askAssistant threw exception', e);
@@ -347,7 +439,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> startNewChat() async {
     final session = _createChatSession();
-    chatSessions = [session, ...chatSessions];
+    chatSessions = _normalizeChatSessions([session, ...chatSessions], preferredActiveId: session.id);
     activeChatSessionId = session.id;
     await _syncCloudStateIfAvailable();
     notifyListeners();
@@ -356,7 +448,9 @@ class AppState extends ChangeNotifier {
   Future<void> selectChatSession(String sessionId) async {
     if (chatSessions.any((session) => session.id == sessionId)) {
       activeChatSessionId = sessionId;
-      await _syncCloudStateIfAvailable();
+      // Selecting a chat is only a local UI state change. Avoid writing the
+      // whole user-state document to Firestore just because the user switched
+      // between saved conversations.
       notifyListeners();
     }
   }
@@ -443,6 +537,13 @@ class AppState extends ChangeNotifier {
         }
       }
 
+      // The app should become logged in only after the user's Firestore profile
+      // has been saved successfully. This prevents the root app from opening an
+      // empty patient shell during signup.
+      if (_authService.currentUserId != null) {
+        loggedIn = true;
+      }
+      await _refreshAdminStatus();
       notifyListeners();
       return null;
     } catch (e, st) {
@@ -509,21 +610,39 @@ class AppState extends ChangeNotifier {
     return error;
   }
 
-  Future<String?> register(String email, String password) async {
+  Future<String?> register(
+    String email,
+    String password, {
+    bool activateSession = true,
+  }) async {
     final error = await _authService.register(email: email, password: password);
-    if (error == null) {
-      loggedIn = true;
-      _resetUserSessionState();
-      await _refreshAdminStatus();
-      await _pullCloudStateIfAvailable();
-      notifyListeners();
+
+    if (error != null) {
+      return error;
     }
-    return error;
+
+    // Signup is a two-step flow: Firebase Auth account first, then Firestore
+    // profile state. Do not switch the root UI into the signed-in shell until
+    // completeOnboarding() confirms the profile was saved.
+    if (!activateSession) {
+      loggedIn = false;
+      isAdmin = false;
+      notifyListeners();
+      return null;
+    }
+
+    loggedIn = true;
+    _resetUserSessionState();
+    await _refreshAdminStatus();
+    await _pullCloudStateIfAvailable();
+    notifyListeners();
+    return null;
   }
 
 
   Future<String?> completeOnboarding(UserProfile value) async {
     final previousOnboardingCompleted = onboardingCompleted;
+    final previousLoggedIn = loggedIn;
 
     final requestedAccountType = value.accountType.trim();
     final existingAccountType = profile.accountType.trim();
@@ -568,6 +687,13 @@ class AppState extends ChangeNotifier {
         }
       }
 
+      // The app should become logged in only after the user's Firestore profile
+      // has been saved successfully. This prevents the root app from opening an
+      // empty patient shell during signup.
+      if (_authService.currentUserId != null) {
+        loggedIn = true;
+      }
+      await _refreshAdminStatus();
       notifyListeners();
       return null;
     } catch (e, st) {
@@ -578,6 +704,7 @@ class AppState extends ChangeNotifier {
       // so the auth/onboarding screen does not route forward as if signup
       // finished successfully.
       onboardingCompleted = previousOnboardingCompleted;
+      loggedIn = previousLoggedIn;
       notifyListeners();
       return 'Account was created, but profile data could not be saved to Firestore. Check Firestore rules and try again.';
     }
@@ -637,8 +764,8 @@ class AppState extends ChangeNotifier {
       }
 
       profile = cloudState.profile;
-      logs = cloudState.logs;
-      chatSessions = cloudState.chatSessions;
+      logs = cloudState.logs.take(maxStoredHealthLogs).toList();
+      chatSessions = _normalizeChatSessions(cloudState.chatSessions, preferredActiveId: cloudState.activeChatSessionId);
       activeChatSessionId = cloudState.activeChatSessionId ?? (chatSessions.isNotEmpty ? chatSessions.first.id : null);
       onboardingCompleted = cloudState.onboardingCompleted;
       if (!onboardingCompleted && profile.name.trim().isNotEmpty && profile.age > 0 && profile.gender.trim().isNotEmpty && profile.bloodGroup.trim().isNotEmpty) {
@@ -941,6 +1068,12 @@ class AppState extends ChangeNotifier {
       return;
     }
 
+    logs = logs.take(maxStoredHealthLogs).toList();
+    chatSessions = _normalizeChatSessions(chatSessions, preferredActiveId: activeChatSessionId);
+    if (activeChatSessionId != null && !chatSessions.any((session) => session.id == activeChatSessionId)) {
+      activeChatSessionId = chatSessions.isNotEmpty ? chatSessions.first.id : null;
+    }
+
     await _firestoreService.saveUserState(
       userId: userId,
       profile: profile,
@@ -1026,15 +1159,68 @@ class AppState extends ChangeNotifier {
   }
 
   void _replaceActiveChatSession(ChatSession session) {
-    final index = chatSessions.indexWhere((item) => item.id == session.id);
+    final safeSession = _trimChatSession(session);
+    final index = chatSessions.indexWhere((item) => item.id == safeSession.id);
     if (index == -1) {
-      chatSessions = [session, ...chatSessions];
-      activeChatSessionId = session.id;
+      chatSessions = _normalizeChatSessions(
+        [safeSession, ...chatSessions],
+        preferredActiveId: safeSession.id,
+      );
+      activeChatSessionId = safeSession.id;
       return;
     }
 
-    chatSessions = [...chatSessions]..[index] = session;
-    activeChatSessionId = session.id;
+    final updatedSessions = [...chatSessions]..[index] = safeSession;
+    chatSessions = _normalizeChatSessions(
+      updatedSessions,
+      preferredActiveId: safeSession.id,
+    );
+    activeChatSessionId = safeSession.id;
+  }
+
+  ChatSession _trimChatSession(ChatSession session) {
+    if (session.messages.length <= maxStoredChatMessagesPerSession) {
+      return session;
+    }
+
+    return session.copyWith(
+      messages: session.messages
+          .skip(session.messages.length - maxStoredChatMessagesPerSession)
+          .toList(),
+    );
+  }
+
+  List<ChatSession> _normalizeChatSessions(
+    List<ChatSession> sessions, {
+    String? preferredActiveId,
+  }) {
+    final seen = <String>{};
+    final deduped = <ChatSession>[];
+
+    for (final session in sessions) {
+      if (session.id.trim().isEmpty || seen.contains(session.id)) {
+        continue;
+      }
+      seen.add(session.id);
+      deduped.add(_trimChatSession(session));
+    }
+
+    if (deduped.length <= maxStoredChatSessions) {
+      return deduped;
+    }
+
+    final activeId = preferredActiveId ?? activeChatSessionId;
+    final activeIndex = activeId == null
+        ? -1
+        : deduped.indexWhere((session) => session.id == activeId);
+
+    if (activeIndex < 0) {
+      return deduped.take(maxStoredChatSessions).toList();
+    }
+
+    final activeSession = deduped[activeIndex];
+    final remaining = deduped.where((session) => session.id != activeSession.id);
+    return [activeSession, ...remaining].take(maxStoredChatSessions).toList();
   }
 
   void _appendToActiveChat(ChatMessage message) {

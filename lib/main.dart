@@ -201,13 +201,7 @@ class _SplashVisualState extends State<_SplashVisual> with SingleTickerProviderS
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF0DA8A0), Color(0xFF2BC4E2), Color(0xFFF2F8FB)],
-          ),
-        ),
+        decoration: const BoxDecoration(gradient: AppTheme.brandGradient),
         child: Center(
           child: FadeTransition(
             opacity: _controller,
@@ -219,14 +213,19 @@ class _SplashVisualState extends State<_SplashVisual> with SingleTickerProviderS
                 Text(
                   AppConstants.appName,
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
+                        color: AppTheme.onBrand,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.5,
                       ),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   AppConstants.tagline,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: Colors.white),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: AppTheme.onBrand.withValues(alpha: 0.86),
+                        fontWeight: FontWeight.w600,
+                      ),
                 ),
               ],
             ),

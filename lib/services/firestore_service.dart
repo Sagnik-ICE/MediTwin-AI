@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../utils/debug_logger.dart';
 import '../models/chat_message.dart';
@@ -22,6 +23,83 @@ class CloudUserState {
   final List<ChatSession> chatSessions;
   final String? activeChatSessionId;
   final bool onboardingCompleted;
+}
+
+
+
+class AdminAuditEntry {
+  const AdminAuditEntry({
+    required this.id,
+    required this.action,
+    required this.targetType,
+    required this.targetId,
+    required this.label,
+    required this.actorUid,
+    required this.actorEmail,
+    required this.createdAt,
+    required this.details,
+  });
+
+  final String id;
+  final String action;
+  final String targetType;
+  final String targetId;
+  final String label;
+  final String actorUid;
+  final String actorEmail;
+  final DateTime? createdAt;
+  final Map<String, dynamic> details;
+
+  factory AdminAuditEntry.fromDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data();
+    final rawCreatedAt = data['createdAt'];
+    DateTime? createdAt;
+    if (rawCreatedAt is Timestamp) {
+      createdAt = rawCreatedAt.toDate();
+    } else if (rawCreatedAt is String) {
+      createdAt = DateTime.tryParse(rawCreatedAt);
+    }
+
+    final rawDetails = data['details'];
+    final details = rawDetails is Map ? Map<String, dynamic>.from(rawDetails) : <String, dynamic>{};
+
+    return AdminAuditEntry(
+      id: doc.id,
+      action: (data['action'] ?? '').toString(),
+      targetType: (data['targetType'] ?? '').toString(),
+      targetId: (data['targetId'] ?? '').toString(),
+      label: (data['label'] ?? '').toString(),
+      actorUid: (data['actorUid'] ?? '').toString(),
+      actorEmail: (data['actorEmail'] ?? '').toString(),
+      createdAt: createdAt,
+      details: details,
+    );
+  }
+}
+
+class AdminDashboardStats {
+  const AdminDashboardStats({
+    required this.users,
+    required this.admins,
+    required this.normalDoctors,
+    required this.dedicatedDoctors,
+    required this.ambulances,
+    required this.hospitals,
+    required this.bloodBanks,
+    required this.donors,
+  });
+
+  final int users;
+  final int admins;
+  final int normalDoctors;
+  final int dedicatedDoctors;
+  final int ambulances;
+  final int hospitals;
+  final int bloodBanks;
+  final int donors;
+
+  int get doctors => normalDoctors + dedicatedDoctors;
+  int get emergencyResources => ambulances + hospitals + bloodBanks;
 }
 
 class FirestoreService {
@@ -51,6 +129,76 @@ class FirestoreService {
     return _firestore.collection('doctor_ratings');
   }
 
+  CollectionReference<Map<String, dynamic>> _auditLogsCol() {
+    return _firestore.collection('audit_logs');
+  }
+
+  User? get _currentUser => FirebaseAuth.instance.currentUser;
+
+  Future<void> _safeLogAdminAction({
+    required String action,
+    required String targetType,
+    required String targetId,
+    required String label,
+    Map<String, dynamic> details = const {},
+  }) async {
+    final user = _currentUser;
+    if (user == null) return;
+
+    try {
+      final safeDetails = <String, dynamic>{};
+      details.forEach((key, value) {
+        if (value == null) return;
+        if (value is String || value is num || value is bool) {
+          safeDetails[key] = value;
+        } else if (value is Iterable) {
+          safeDetails[key] = value.map((item) => item.toString()).take(20).toList();
+        } else {
+          safeDetails[key] = value.toString();
+        }
+      });
+
+      await _auditLogsCol().add({
+        'action': action,
+        'targetType': targetType,
+        'targetId': targetId,
+        'label': label,
+        'actorUid': user.uid,
+        'actorEmail': user.email ?? '',
+        'details': safeDetails,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } on FirebaseException catch (e) {
+      // Audit logging should never break the primary action. Non-admin actors
+      // can hit permission-denied when this helper is called from shared flows.
+      if (e.code != 'permission-denied') {
+        DebugLogger.warning('Failed to write audit log for $action', e);
+      }
+    } catch (e) {
+      DebugLogger.warning('Failed to write audit log for $action', e);
+    }
+  }
+
+  Future<List<AdminAuditEntry>> loadRecentAdminAuditLogs({int limit = 12}) async {
+    try {
+      final snapshot = await _auditLogsCol()
+          .orderBy('createdAt', descending: true)
+          .limit(limit)
+          .get();
+      return snapshot.docs.map(AdminAuditEntry.fromDoc).toList();
+    } on FirebaseException catch (e, stack) {
+      if (e.code == 'permission-denied') {
+        DebugLogger.warning('Admin audit logs are not available for this account.', e);
+        return const <AdminAuditEntry>[];
+      }
+      DebugLogger.error('Failed to load admin audit logs', e, stack);
+      return const <AdminAuditEntry>[];
+    } catch (e, stack) {
+      DebugLogger.error('Failed to load admin audit logs', e, stack);
+      return const <AdminAuditEntry>[];
+    }
+  }
+
   Future<void> saveUserState({
     required String userId,
     required UserProfile profile,
@@ -63,8 +211,8 @@ class FirestoreService {
       await _stateDoc(userId).set(
         {
           'profile': profile.toMap(),
-          'logs': logs.map((e) => e.toMap()).toList(),
-          'chatSessions': chatSessions.map((e) => e.toMap()).toList(),
+          'logs': logs.map((e) => e.toFirestoreMap()).toList(),
+          'chatSessions': chatSessions.map((e) => e.toFirestoreMap()).toList(),
           'activeChatSessionId': activeChatSessionId,
           'onboardingCompleted': onboardingCompleted,
           'updatedAt': FieldValue.serverTimestamp(),
@@ -150,6 +298,13 @@ class FirestoreService {
         'updatedAt': FieldValue.serverTimestamp(),
       };
       await docRef.set(data, SetOptions(merge: true));
+      await _safeLogAdminAction(
+        action: 'admin_saved',
+        targetType: 'admin',
+        targetId: docRef.id,
+        label: displayName.isNotEmpty ? displayName : email,
+        details: {'email': email.toLowerCase(), 'uid': uid ?? ''},
+      );
     } catch (e, stack) {
       DebugLogger.error('Failed to save admin', e, stack);
       rethrow;
@@ -159,9 +314,105 @@ class FirestoreService {
   Future<void> deleteAdmin(String adminId) async {
     try {
       await _adminDoc(adminId).delete();
+      await _safeLogAdminAction(
+        action: 'admin_deleted',
+        targetType: 'admin',
+        targetId: adminId,
+        label: adminId,
+      );
     } catch (e, stack) {
       DebugLogger.error('Failed to delete admin $adminId', e, stack);
       rethrow;
+    }
+  }
+
+
+  Future<AdminDashboardStats> loadAdminDashboardStats() async {
+    // Admin dashboard should not fail completely if one collection cannot be read.
+    // Each count is loaded independently, then Firestore rules decide what the
+    // signed-in admin can access. The app still logs individual failures.
+    final stateDocs = await _safeAdminDocs(
+      label: 'user app states',
+      query: _firestore.collectionGroup('app'),
+    );
+    final adminDocs = await _safeAdminDocs(
+      label: 'admin records',
+      query: _firestore.collection('app_admins'),
+    );
+    final doctorDocs = await _safeAdminDocs(
+      label: 'doctor records',
+      query: _firestore.collection('doctors'),
+    );
+    final ambulanceDocs = await _safeAdminDocs(
+      label: 'ambulance records',
+      query: _firestore.collection('emergency_resources').where('type', isEqualTo: 'ambulance'),
+    );
+    final hospitalDocs = await _safeAdminDocs(
+      label: 'hospital records',
+      query: _firestore.collection('emergency_resources').where('type', isEqualTo: 'hospital'),
+    );
+    final bloodBankDocs = await _safeAdminDocs(
+      label: 'blood bank records',
+      query: _firestore.collection('emergency_resources').where('type', isEqualTo: 'blood_bank'),
+    );
+    final donorDocs = await _safeAdminDocs(
+      label: 'donor records',
+      query: _firestore.collection('blood_donors'),
+    );
+
+    // collectionGroup('app') can theoretically return any document under a
+    // collection named "app". Only /users/{uid}/app/state documents count here.
+    final userStateDocs = stateDocs.where((doc) => doc.id == 'state').toList();
+
+    var stateAdminCount = 0;
+    for (final doc in userStateDocs) {
+      final profile = doc.data()['profile'];
+      if (profile is Map && (profile['accountType'] ?? '').toString().toLowerCase() == 'admin') {
+        stateAdminCount += 1;
+      }
+    }
+
+    var dedicatedDoctors = 0;
+    for (final doc in doctorDocs) {
+      final data = doc.data();
+      final hasDedicatedProfile = data['hasDedicatedProfile'] == true;
+      final doctorUserId = (data['doctorUserId'] ?? '').toString().trim();
+      final acceptsAppointments = data['acceptsAppointments'] != false;
+      if (hasDedicatedProfile && doctorUserId.isNotEmpty && acceptsAppointments) {
+        dedicatedDoctors += 1;
+      }
+    }
+
+    final normalDoctors = doctorDocs.length - dedicatedDoctors;
+    final adminCount = adminDocs.length > stateAdminCount ? adminDocs.length : stateAdminCount;
+
+    return AdminDashboardStats(
+      users: userStateDocs.length,
+      admins: adminCount,
+      normalDoctors: normalDoctors < 0 ? 0 : normalDoctors,
+      dedicatedDoctors: dedicatedDoctors,
+      ambulances: ambulanceDocs.length,
+      hospitals: hospitalDocs.length,
+      bloodBanks: bloodBankDocs.length,
+      donors: donorDocs.length,
+    );
+  }
+
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _safeAdminDocs({
+    required String label,
+    required Query<Map<String, dynamic>> query,
+  }) async {
+    try {
+      final snapshot = await query.get();
+      return snapshot.docs;
+    } on FirebaseException catch (e, stack) {
+      DebugLogger.warning('Could not load admin dashboard $label', e);
+      DebugLogger.debug(stack.toString());
+      return <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    } catch (e, stack) {
+      DebugLogger.warning('Could not load admin dashboard $label', e);
+      DebugLogger.debug(stack.toString());
+      return <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     }
   }
 
@@ -177,10 +428,17 @@ class FirestoreService {
 
   Future<void> saveDoctorCategory(String name) async {
     try {
-      await _doctorCategoriesCol().doc(name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_')).set({
+      final docId = name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+      await _doctorCategoriesCol().doc(docId).set({
         'name': name.trim(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+      await _safeLogAdminAction(
+        action: 'doctor_category_saved',
+        targetType: 'doctor_category',
+        targetId: docId,
+        label: name.trim(),
+      );
     } catch (e, stack) {
       DebugLogger.error('Failed to save doctor category', e, stack);
       rethrow;
@@ -285,13 +543,39 @@ class FirestoreService {
     return parsed?.millisecondsSinceEpoch ?? 0;
   }
 
+  Timestamp? _timestampFromDateLike(dynamic value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value;
+    if (value is DateTime) return Timestamp.fromDate(value);
+    if (value is String) {
+      final parsed = DateTime.tryParse(value);
+      return parsed == null ? null : Timestamp.fromDate(parsed);
+    }
+    if (value is int) {
+      try {
+        return Timestamp.fromDate(DateTime.fromMillisecondsSinceEpoch(value));
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
+
   Future<String> saveDoctorAppointment(Map<String, dynamic> appointment) async {
     try {
       final docRef = appointment['id'] == null || appointment['id'].toString().isEmpty
           ? _doctorAppointmentsCol().doc()
           : _doctorAppointmentsCol().doc(appointment['id'].toString());
+      final cloudAppointment = Map<String, dynamic>.from(appointment);
+      cloudAppointment.remove('id');
+
+      final appointmentAt = _timestampFromDateLike(cloudAppointment['appointmentAt']);
+      if (appointmentAt != null) {
+        cloudAppointment['appointmentAt'] = appointmentAt;
+      }
+
       await docRef.set({
-        ...appointment,
+        ...cloudAppointment,
         'updatedAt': FieldValue.serverTimestamp(),
         if (appointment['createdAt'] == null) 'createdAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
@@ -319,9 +603,11 @@ class FirestoreService {
   Future<void> updateDoctorAppointmentStatus({
     required String appointmentId,
     required String status,
+    String? serialNumber,
   }) async {
     final normalizedId = appointmentId.trim();
     final normalizedStatus = status.trim().toLowerCase();
+    final normalizedSerial = serialNumber?.trim();
 
     if (normalizedId.isEmpty) {
       throw ArgumentError('Appointment ID is required.');
@@ -335,12 +621,29 @@ class FirestoreService {
     }
 
     try {
+      final updates = <String, dynamic>{
+        'status': normalizedStatus,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      if (normalizedStatus == 'confirmed' && normalizedSerial != null && normalizedSerial.isNotEmpty) {
+        updates['serialNumber'] = normalizedSerial;
+        updates['serialAssignedAt'] = FieldValue.serverTimestamp();
+      }
+
       await _doctorAppointmentsCol().doc(normalizedId).set(
-        {
-          'status': normalizedStatus,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
+        updates,
         SetOptions(merge: true),
+      );
+      await _safeLogAdminAction(
+        action: 'appointment_status_updated',
+        targetType: 'appointment',
+        targetId: normalizedId,
+        label: normalizedStatus,
+        details: {
+          'status': normalizedStatus,
+          if (normalizedSerial != null && normalizedSerial.isNotEmpty) 'serialNumber': normalizedSerial,
+        },
       );
     } catch (e, stack) {
       DebugLogger.error('Failed to update doctor appointment $normalizedId', e, stack);
@@ -372,24 +675,35 @@ class FirestoreService {
   Future<void> saveDoctorRating({
     required String doctorId,
     required String doctorUserId,
+    required String appointmentId,
     required String patientUid,
     required String patientName,
     required double rating,
     String? review,
   }) async {
+    final normalizedDoctorId = doctorId.trim();
+    final normalizedDoctorUserId = doctorUserId.trim();
+    final normalizedAppointmentId = appointmentId.trim();
+    final normalizedPatientUid = patientUid.trim();
+
+    if (normalizedDoctorId.isEmpty || normalizedDoctorUserId.isEmpty || normalizedAppointmentId.isEmpty || normalizedPatientUid.isEmpty) {
+      throw ArgumentError('Doctor, appointment, and patient identifiers are required to save a rating.');
+    }
+
     try {
-      final docId = '${doctorId}_$patientUid';
+      final docId = '${normalizedDoctorId}_$normalizedPatientUid';
       await _doctorRatingsCol().doc(docId).set({
-        'doctorId': doctorId,
-        'doctorUserId': doctorUserId,
-        'patientUid': patientUid,
-        'patientName': patientName,
+        'doctorId': normalizedDoctorId,
+        'doctorUserId': normalizedDoctorUserId,
+        'appointmentId': normalizedAppointmentId,
+        'patientUid': normalizedPatientUid,
+        'patientName': patientName.trim(),
         'rating': rating,
-        'review': review ?? '',
+        'review': review?.trim() ?? '',
         'updatedAt': FieldValue.serverTimestamp(),
         'createdAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
-      await recalculateDoctorRating(doctorId);
+      await recalculateDoctorRating(normalizedDoctorId);
     } catch (e, stack) {
       DebugLogger.error('Failed to save doctor rating', e, stack);
       rethrow;
@@ -738,7 +1052,19 @@ class FirestoreService {
       final docRef = doctor['id'] == null || doctor['id'].toString().isEmpty
           ? _firestore.collection('doctors').doc()
           : _firestore.collection('doctors').doc(doctor['id'].toString());
+      final isNew = doctor['id'] == null || doctor['id'].toString().isEmpty;
       await docRef.set({...doctor, 'updatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+      await _safeLogAdminAction(
+        action: isNew ? 'doctor_created' : 'doctor_updated',
+        targetType: 'doctor',
+        targetId: docRef.id,
+        label: (doctor['name'] ?? doctor['displayName'] ?? 'Doctor').toString(),
+        details: {
+          'category': (doctor['category'] ?? '').toString(),
+          'district': (doctor['district'] ?? '').toString(),
+          'dedicated': doctor['hasDedicatedProfile'] == true,
+        },
+      );
       return docRef.id;
     } catch (e, stack) {
       DebugLogger.error('Failed to save doctor', e, stack);
@@ -747,10 +1073,89 @@ class FirestoreService {
   }
 
   Future<void> deleteDoctor(String id) async {
+    final normalizedId = id.trim();
+    if (normalizedId.isEmpty) {
+      throw ArgumentError('Doctor ID is required.');
+    }
+
     try {
-      await _firestore.collection('doctors').doc(id).delete();
+      final snapshot = await _firestore.collection('doctors').doc(normalizedId).get();
+      final data = snapshot.data();
+      if (data == null) {
+        await _firestore.collection('doctors').doc(normalizedId).delete();
+        return;
+      }
+
+      await deleteDoctorCompletely({
+        ...data,
+        'id': normalizedId,
+      });
     } catch (e, stack) {
-      DebugLogger.error('Failed to delete doctor $id', e, stack);
+      DebugLogger.error('Failed to delete doctor $normalizedId', e, stack);
+      rethrow;
+    }
+  }
+
+  Future<void> deleteDoctorCompletely(Map<String, dynamic> doctor) async {
+    final doctorId = (doctor['id'] ?? '').toString().trim();
+    final doctorUserId = (doctor['doctorUserId'] ?? '').toString().trim();
+
+    if (doctorId.isEmpty) {
+      throw ArgumentError('Doctor ID is required.');
+    }
+
+    try {
+      // Remove appointment records that are attached to this doctor directory
+      // document. This covers normal listed doctors and older records.
+      await _deleteQueryDocuments(
+        _doctorAppointmentsCol().where('doctorId', isEqualTo: doctorId),
+        'appointments for doctor document $doctorId',
+      );
+
+      // Remove rating records attached to the doctor document.
+      await _deleteQueryDocuments(
+        _doctorRatingsCol().where('doctorId', isEqualTo: doctorId),
+        'ratings for doctor document $doctorId',
+      );
+
+      if (doctorUserId.isNotEmpty) {
+        // Dedicated doctors also have a private user app-state document and may
+        // have appointment/rating records linked by doctorUserId. Remove all of
+        // those database records as part of the doctor deletion.
+        await _deleteAppointmentsForUser(doctorUserId);
+        await _deleteRatingsForDoctorUser(doctorUserId);
+        await deleteUserState(doctorUserId);
+
+        // Clean optional records if this account ever created them through older
+        // app versions. These deletes are safe when the documents do not exist.
+        await deleteDonor(doctorUserId);
+
+        // Remove any duplicate/legacy doctor directory documents linked to this
+        // same Firebase user ID, not only the visible card that was tapped.
+        await _deleteQueryDocuments(
+          _firestore.collection('doctors').where('doctorUserId', isEqualTo: doctorUserId),
+          'doctor directory records for doctor user $doctorUserId',
+        );
+      }
+
+      // Ensure the selected doctor document is removed even if it had no
+      // doctorUserId or if the linked-profile query did not include it.
+      await _firestore.collection('doctors').doc(doctorId).delete();
+
+      await _safeLogAdminAction(
+        action: 'doctor_deleted',
+        targetType: 'doctor',
+        targetId: doctorId,
+        label: (doctor['name'] ?? doctor['displayName'] ?? 'Doctor').toString(),
+        details: {
+          'doctorUserId': doctorUserId,
+          'dedicated': doctorUserId.isNotEmpty,
+        },
+      );
+
+      DebugLogger.info('Deleted complete doctor database profile for $doctorId');
+    } catch (e, stack) {
+      DebugLogger.error('Failed to delete complete doctor database profile for $doctorId', e, stack);
       rethrow;
     }
   }
@@ -779,7 +1184,18 @@ class FirestoreService {
       final docRef = resource['id'] == null || resource['id'].toString().isEmpty
           ? _firestore.collection('emergency_resources').doc()
           : _firestore.collection('emergency_resources').doc(resource['id'].toString());
+      final isNew = resource['id'] == null || resource['id'].toString().isEmpty;
       await docRef.set({...resource, 'updatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+      await _safeLogAdminAction(
+        action: isNew ? 'emergency_resource_created' : 'emergency_resource_updated',
+        targetType: 'emergency_resource',
+        targetId: docRef.id,
+        label: (resource['name'] ?? 'Emergency resource').toString(),
+        details: {
+          'type': (resource['type'] ?? '').toString(),
+          'district': (resource['district'] ?? '').toString(),
+        },
+      );
       return docRef.id;
     } catch (e, stack) {
       DebugLogger.error('Failed to save emergency resource', e, stack);
@@ -790,6 +1206,12 @@ class FirestoreService {
   Future<void> deleteEmergencyResource(String id) async {
     try {
       await _firestore.collection('emergency_resources').doc(id).delete();
+      await _safeLogAdminAction(
+        action: 'emergency_resource_deleted',
+        targetType: 'emergency_resource',
+        targetId: id,
+        label: id,
+      );
     } catch (e, stack) {
       DebugLogger.error('Failed to delete emergency resource $id', e, stack);
       rethrow;

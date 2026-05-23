@@ -176,10 +176,14 @@ service cloud.firestore {
     function appointmentStatusOnlyUpdate() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status',
-          'updatedAt'
+          'updatedAt',
+          'serialNumber',
+          'serialAssignedAt'
         ])
         && appointmentIdentityUnchanged()
-        && validAppointmentStatus(request.resource.data.status);
+        && validAppointmentStatus(request.resource.data.status)
+        && (!('serialNumber' in request.resource.data)
+          || (request.resource.data.serialNumber is string && request.resource.data.serialNumber.size() > 0 && request.resource.data.serialNumber.size() <= 30));
     }
 
     function doctorAppointmentStatusUpdateAllowed() {
@@ -196,12 +200,25 @@ service cloud.firestore {
         && (resource.data.status == 'pending' || resource.data.status == 'confirmed');
     }
 
+    function validCompletedAppointmentRating(data) {
+      return data.appointmentId is string
+        && data.appointmentId.size() > 0
+        && exists(/databases/$(database)/documents/doctor_appointments/$(data.appointmentId))
+        && get(/databases/$(database)/documents/doctor_appointments/$(data.appointmentId)).data.patientUid == request.auth.uid
+        && get(/databases/$(database)/documents/doctor_appointments/$(data.appointmentId)).data.doctorId == data.doctorId
+        && get(/databases/$(database)/documents/doctor_appointments/$(data.appointmentId)).data.doctorUserId == data.doctorUserId
+        && get(/databases/$(database)/documents/doctor_appointments/$(data.appointmentId)).data.status == 'completed';
+    }
+
     function validRating(data) {
       return signedIn()
         && data is map
         && data.patientUid == request.auth.uid
         && data.doctorId is string
         && data.doctorId.size() > 0
+        && data.doctorUserId is string
+        && data.doctorUserId.size() > 0
+        && validCompletedAppointmentRating(data)
         && data.rating is number
         && data.rating >= 1
         && data.rating <= 5
@@ -225,6 +242,9 @@ service cloud.firestore {
           'qualification',
           'division',
           'district',
+          'chamber',
+          'chambers',
+          'availableDays',
           'updatedAt'
         ])
         && validDoctorRecord(request.resource.data);
@@ -328,12 +348,22 @@ service cloud.firestore {
         && (!('updatedAt' in data) || isFlexibleDate(data.updatedAt));
     }
 
+
+
+    // ---------- Admin collection-group access ----------
+    // Admin overview counts saved app-state documents with a collectionGroup('app') query.
+    // Firestore requires a recursive match for collection-group list permissions.
+    match /{path=**}/app/{appDocId} {
+      allow get, list: if isAdminUser();
+    }
+
     // ---------- User app state ----------
     match /users/{userId} {
       allow get, list: if false;
 
       match /app/state {
         allow get: if isOwner(userId) || isAdminUser();
+        allow list: if isAdminUser();
 
         // Owners may only create patient app-state documents or preserve their
         // existing role. Admins can still create doctor/admin state documents for
@@ -431,6 +461,30 @@ service cloud.firestore {
         || resource.data.patientUid == request.auth.uid
         || resource.data.doctorUserId == request.auth.uid
       );
+    }
+
+
+
+    // ---------- Admin audit logs ----------
+    match /audit_logs/{logId} {
+      allow get, list: if isAdminUser();
+      allow create: if isAdminUser()
+        && request.resource.data is map
+        && request.resource.data.action is string
+        && request.resource.data.action.size() > 0
+        && request.resource.data.action.size() <= 80
+        && request.resource.data.targetType is string
+        && request.resource.data.targetType.size() <= 80
+        && request.resource.data.targetId is string
+        && request.resource.data.targetId.size() <= 180
+        && request.resource.data.label is string
+        && request.resource.data.label.size() <= 240
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.actorEmail is string
+        && request.resource.data.actorEmail.size() <= 180
+        && request.resource.data.details is map;
+      allow update: if false;
+      allow delete: if isMainAdmin() || request.auth.token.admin == true;
     }
 
     // ---------- Final deny ----------
