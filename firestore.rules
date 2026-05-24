@@ -50,16 +50,14 @@ service cloud.firestore {
     function isFlexibleDate(value) {
       return value == null
         || value is timestamp
-        || (value is string && value.size() <= 60);
+        || (value is string && value.size() <= 80);
     }
 
-    // ---------- Validators ----------
-    // Kept intentionally compatible with the current Flutter app, which stores
-    // profile, logs, and chat sessions inside /users/{uid}/app/state.
+    // ---------- User-state validators ----------
     function validProfile(profile) {
       return profile is map
         && (!('name' in profile) || (profile.name is string && profile.name.size() <= 120))
-        && (!('email' in profile) || (profile.email is string && profile.email.size() <= 160))
+        && (!('email' in profile) || (profile.email is string && profile.email.size() <= 180))
         && (!('age' in profile) || (profile.age is number && profile.age >= 0 && profile.age <= 130))
         && (!('gender' in profile) || (profile.gender is string && profile.gender.size() <= 60))
         && (!('bloodGroup' in profile) || (profile.bloodGroup is string && profile.bloodGroup.size() <= 20))
@@ -78,6 +76,7 @@ service cloud.firestore {
             profile.accountType == 'patient'
             || profile.accountType == 'doctor'
             || profile.accountType == 'admin'
+            || profile.accountType == ''
           )
         ));
     }
@@ -94,39 +93,144 @@ service cloud.firestore {
         && (!('updatedAt' in data) || isFlexibleDate(data.updatedAt));
     }
 
+    function ownerStateCreateAllowed() {
+      return signedIn()
+        && request.resource.data is map
+        && request.resource.data.profile is map
+        && (
+          !('accountType' in request.resource.data.profile)
+          || request.resource.data.profile.accountType == 'patient'
+          || request.resource.data.profile.accountType == ''
+        );
+    }
+
+    function ownerStateUpdateAllowed() {
+      return signedIn()
+        && request.resource.data is map
+        && request.resource.data.profile is map
+        && (
+          !('accountType' in request.resource.data.profile)
+          || request.resource.data.profile.accountType == 'patient'
+          || request.resource.data.profile.accountType == ''
+          || (
+            resource.data is map
+            && resource.data.profile is map
+            && ('accountType' in resource.data.profile)
+            && request.resource.data.profile.accountType == resource.data.profile.accountType
+          )
+        );
+    }
+
+    // ---------- Admin validators ----------
     function validAdminRecord(data) {
       return data is map
         && data.email is string
-        && data.email.size() <= 160
+        && data.email.size() <= 180
         && data.displayName is string
-        && data.displayName.size() <= 120
+        && data.displayName.size() <= 140
         && data.addedBy is string
-        && data.addedBy.size() <= 160
-        && (!('uid' in data) || data.uid == null || (data.uid is string && data.uid.size() <= 160))
+        && data.addedBy.size() <= 180
+        && (!('uid' in data) || data.uid == null || (data.uid is string && data.uid.size() <= 180))
         && (!('createdAt' in data) || isFlexibleDate(data.createdAt))
         && (!('updatedAt' in data) || isFlexibleDate(data.updatedAt));
     }
 
+    // ---------- Doctor validators ----------
     function validDoctorRecord(data) {
       return data is map
         && data.name is string
         && data.name.size() > 0
-        && data.name.size() <= 160
-        && (!('category' in data) || (data.category is string && data.category.size() <= 120))
-        && (!('division' in data) || (data.division is string && data.division.size() <= 100))
-        && (!('district' in data) || (data.district is string && data.district.size() <= 100))
-        && (!('doctorUserId' in data) || data.doctorUserId == null || (data.doctorUserId is string && data.doctorUserId.size() <= 160))
-        && (!('doctorEmail' in data) || data.doctorEmail == null || (data.doctorEmail is string && data.doctorEmail.size() <= 160))
-        && (!('displayName' in data) || data.displayName == null || (data.displayName is string && data.displayName.size() <= 160))
-        && (!('authEmail' in data) || data.authEmail == null || (data.authEmail is string && data.authEmail.size() <= 160))
-        && (!('qualification' in data) || data.qualification == null || (data.qualification is string && data.qualification.size() <= 1000))
+        && data.name.size() <= 180
+        && (!('category' in data) || data.category == null || (data.category is string && data.category.size() <= 140))
+        && (!('division' in data) || data.division == null || (data.division is string && data.division.size() <= 120))
+        && (!('district' in data) || data.district == null || (data.district is string && data.district.size() <= 120))
+        && (!('doctorUserId' in data) || data.doctorUserId == null || (data.doctorUserId is string && data.doctorUserId.size() <= 180))
+        && (!('doctorEmail' in data) || data.doctorEmail == null || (data.doctorEmail is string && data.doctorEmail.size() <= 180))
+        && (!('displayName' in data) || data.displayName == null || (data.displayName is string && data.displayName.size() <= 180))
+        && (!('authEmail' in data) || data.authEmail == null || (data.authEmail is string && data.authEmail.size() <= 180))
+        && (!('qualification' in data) || data.qualification == null || (data.qualification is string && data.qualification.size() <= 1200))
+        && (!('specialtySummary' in data) || data.specialtySummary == null || (data.specialtySummary is string && data.specialtySummary.size() <= 1200))
+        && (!('details' in data) || data.details == null || (data.details is string && data.details.size() <= 2000))
+        && (!('contact' in data) || data.contact == null || (data.contact is string && data.contact.size() <= 220))
+        && (!('contactInfo' in data) || data.contactInfo == null || (data.contactInfo is string && data.contactInfo.size() <= 220))
+        && (!('chamber' in data) || data.chamber == null || (data.chamber is string && data.chamber.size() <= 3000))
+        && (!('availableDays' in data) || data.availableDays == null || data.availableDays is list || data.availableDays is string)
+        && (!('chambers' in data) || data.chambers == null || (data.chambers is list && data.chambers.size() <= 10))
         && (!('rating' in data) || (data.rating is number && data.rating >= 0 && data.rating <= 5))
         && (!('ratingCount' in data) || (data.ratingCount is number && data.ratingCount >= 0))
         && (!('hasDedicatedProfile' in data) || data.hasDedicatedProfile is bool)
         && (!('acceptsAppointments' in data) || data.acceptsAppointments is bool)
+        && (!('photoDataUrl' in data) || data.photoDataUrl == null || (data.photoDataUrl is string && data.photoDataUrl.size() <= 500000))
+        && (!('doctorPhotoDataUrl' in data) || data.doctorPhotoDataUrl == null || (data.doctorPhotoDataUrl is string && data.doctorPhotoDataUrl.size() <= 500000))
+        && (!('imageDataUrl' in data) || data.imageDataUrl == null || (data.imageDataUrl is string && data.imageDataUrl.size() <= 500000))
+        && (!('photoUpdatedAt' in data) || isFlexibleDate(data.photoUpdatedAt))
+        && (!('createdAt' in data) || isFlexibleDate(data.createdAt))
         && (!('updatedAt' in data) || isFlexibleDate(data.updatedAt));
     }
 
+    function doctorLinkedToAuth(data) {
+      return signedIn()
+        && data is map
+        && (
+          data.doctorUserId == request.auth.uid
+          || (
+            request.auth.token.email != null
+            && (
+              data.authEmail == request.auth.token.email
+              || data.doctorEmail == request.auth.token.email
+              || data.email == request.auth.token.email
+            )
+          )
+        );
+    }
+
+    function doctorProtectedFieldsUnchanged() {
+      return (!('doctorUserId' in resource.data) || request.resource.data.doctorUserId == resource.data.doctorUserId)
+        && (!('hasDedicatedProfile' in resource.data) || request.resource.data.hasDedicatedProfile == resource.data.hasDedicatedProfile)
+        && (!('acceptsAppointments' in resource.data) || request.resource.data.acceptsAppointments == resource.data.acceptsAppointments)
+        && (!('rating' in resource.data) || request.resource.data.rating == resource.data.rating)
+        && (!('ratingCount' in resource.data) || request.resource.data.ratingCount == resource.data.ratingCount);
+    }
+
+    function validDoctorSelfScheduleUpdate(docId) {
+      return doctorLinkedToAuth(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'chambers',
+          'chamber',
+          'availableDays',
+          'updatedAt',
+          'id'
+        ])
+        && (!('id' in request.resource.data) || request.resource.data.id == docId)
+        && (!('chamber' in request.resource.data) || request.resource.data.chamber == null || (request.resource.data.chamber is string && request.resource.data.chamber.size() <= 3000))
+        && (!('availableDays' in request.resource.data) || request.resource.data.availableDays == null || request.resource.data.availableDays is list || request.resource.data.availableDays is string)
+        && (!('chambers' in request.resource.data) || request.resource.data.chambers == null || (request.resource.data.chambers is list && request.resource.data.chambers.size() <= 10))
+        && (!('updatedAt' in request.resource.data) || isFlexibleDate(request.resource.data.updatedAt));
+    }
+
+    function validDoctorSelfProfileUpdate() {
+      return doctorLinkedToAuth(resource.data)
+        && doctorProtectedFieldsUnchanged()
+        && validDoctorRecord(request.resource.data);
+    }
+
+    function validDoctorRatingAggregateUpdate(docId) {
+      return signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'rating',
+          'ratingCount',
+          'updatedAt'
+        ])
+        && request.resource.data.rating is number
+        && request.resource.data.rating >= 0
+        && request.resource.data.rating <= 5
+        && request.resource.data.ratingCount is number
+        && request.resource.data.ratingCount >= 0
+        && exists(/databases/$(database)/documents/doctor_ratings/$(docId + '_' + request.auth.uid))
+        && validDoctorRecord(request.resource.data);
+    }
+
+    // ---------- Appointment validators ----------
     function isBookableDedicatedDoctor(data) {
       return data.doctorId is string
         && data.doctorId.size() > 0
@@ -149,15 +253,20 @@ service cloud.firestore {
         && isBookableDedicatedDoctor(data)
         && data.patientName is string
         && data.patientName.size() > 0
-        && data.patientName.size() <= 160
+        && data.patientName.size() <= 180
         && (!('appointmentAt' in data) || isFlexibleDate(data.appointmentAt))
+        && (!('chamberId' in data) || data.chamberId == null || (data.chamberId is string && data.chamberId.size() <= 120))
+        && (!('chamberName' in data) || data.chamberName == null || (data.chamberName is string && data.chamberName.size() <= 220))
+        && (!('timeBlockId' in data) || data.timeBlockId == null || (data.timeBlockId is string && data.timeBlockId.size() <= 120))
+        && (!('timeBlockLabel' in data) || data.timeBlockLabel == null || (data.timeBlockLabel is string && data.timeBlockLabel.size() <= 120))
+        && (!('slotMaxPatients' in data) || data.slotMaxPatients == null || (data.slotMaxPatients is number && data.slotMaxPatients >= 1 && data.slotMaxPatients <= 500))
         && (!('status' in data) || (
           data.status == 'pending'
           || data.status == 'confirmed'
           || data.status == 'cancelled'
           || data.status == 'completed'
         ))
-        && (!('reason' in data) || (data.reason is string && data.reason.size() <= 1000));
+        && (!('reason' in data) || data.reason == null || (data.reason is string && data.reason.size() <= 1000));
     }
 
     function validAppointmentStatus(status) {
@@ -183,7 +292,9 @@ service cloud.firestore {
         && appointmentIdentityUnchanged()
         && validAppointmentStatus(request.resource.data.status)
         && (!('serialNumber' in request.resource.data)
-          || (request.resource.data.serialNumber is string && request.resource.data.serialNumber.size() > 0 && request.resource.data.serialNumber.size() <= 30));
+          || request.resource.data.serialNumber == null
+          || (request.resource.data.serialNumber is string && request.resource.data.serialNumber.size() > 0 && request.resource.data.serialNumber.size() <= 30)
+          || (request.resource.data.serialNumber is number && request.resource.data.serialNumber >= 1 && request.resource.data.serialNumber <= 9999));
     }
 
     function doctorAppointmentStatusUpdateAllowed() {
@@ -222,84 +333,10 @@ service cloud.firestore {
         && data.rating is number
         && data.rating >= 1
         && data.rating <= 5
-        && (!('review' in data) || (data.review is string && data.review.size() <= 1000));
+        && (!('review' in data) || data.review == null || (data.review is string && data.review.size() <= 1000));
     }
 
-
-    function validDoctorSelfProfileUpdate() {
-      return signedIn()
-        && resource.data.doctorUserId == request.auth.uid
-        && request.resource.data.doctorUserId == resource.data.doctorUserId
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'name',
-          'displayName',
-          'doctorEmail',
-          'authEmail',
-          'contact',
-          'contactInfo',
-          'specialtySummary',
-          'details',
-          'qualification',
-          'division',
-          'district',
-          'chamber',
-          'chambers',
-          'availableDays',
-          'updatedAt'
-        ])
-        && validDoctorRecord(request.resource.data);
-    }
-
-    function validDoctorRatingAggregateUpdate(docId) {
-      return signedIn()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'rating',
-          'ratingCount',
-          'updatedAt'
-        ])
-        && request.resource.data.rating is number
-        && request.resource.data.rating >= 0
-        && request.resource.data.rating <= 5
-        && request.resource.data.ratingCount is number
-        && request.resource.data.ratingCount >= 0
-        && exists(/databases/$(database)/documents/doctor_ratings/$(docId + '_' + request.auth.uid))
-        && validDoctorRecord(request.resource.data);
-    }
-
-
-
-
-    function ownerStateCreateAllowed() {
-      return signedIn()
-        && request.resource.data is map
-        && request.resource.data.profile is map
-        && (
-          !('accountType' in request.resource.data.profile)
-          || request.resource.data.profile.accountType == 'patient'
-          || request.resource.data.profile.accountType == ''
-        );
-    }
-
-    function ownerStateUpdateAllowed() {
-      return signedIn()
-        && request.resource.data is map
-        && request.resource.data.profile is map
-        && (
-          // Normal users may keep or write patient/missing only.
-          !('accountType' in request.resource.data.profile)
-          || request.resource.data.profile.accountType == 'patient'
-          || request.resource.data.profile.accountType == ''
-          // Existing doctor/admin users may preserve their current role, but cannot
-          // change it from the client-side profile update path.
-          || (
-            resource.data is map
-            && resource.data.profile is map
-            && ('accountType' in resource.data.profile)
-            && request.resource.data.profile.accountType == resource.data.profile.accountType
-          )
-        );
-    }
-
+    // ---------- Public donor / disabled-account validators ----------
     function validPublicDonorRecord(data) {
       return data is map
         && data.keys().hasOnly([
@@ -309,6 +346,8 @@ service cloud.firestore {
           'contact',
           'contactInfo',
           'phone',
+          'address',
+          'location',
           'bloodGroup',
           'division',
           'district',
@@ -319,14 +358,16 @@ service cloud.firestore {
           'source',
           'updatedAt'
         ])
-        && (!('id' in data) || data.id == null || (data.id is string && data.id.size() <= 160))
+        && (!('id' in data) || data.id == null || (data.id is string && data.id.size() <= 180))
         && (!('type' in data) || data.type == 'donor')
         && data.name is string
         && data.name.size() > 0
-        && data.name.size() <= 120
-        && (!('contact' in data) || data.contact == null || (data.contact is string && data.contact.size() <= 160))
-        && (!('contactInfo' in data) || data.contactInfo == null || (data.contactInfo is string && data.contactInfo.size() <= 160))
-        && (!('phone' in data) || data.phone == null || (data.phone is string && data.phone.size() <= 160))
+        && data.name.size() <= 140
+        && (!('contact' in data) || data.contact == null || (data.contact is string && data.contact.size() <= 180))
+        && (!('contactInfo' in data) || data.contactInfo == null || (data.contactInfo is string && data.contactInfo.size() <= 180))
+        && (!('phone' in data) || data.phone == null || (data.phone is string && data.phone.size() <= 180))
+        && (!('address' in data) || data.address == null || (data.address is string && data.address.size() <= 300))
+        && (!('location' in data) || data.location == null || (data.location is string && data.location.size() <= 300))
         && data.bloodGroup is string
         && (
           data.bloodGroup == 'A+'
@@ -348,11 +389,31 @@ service cloud.firestore {
         && (!('updatedAt' in data) || isFlexibleDate(data.updatedAt));
     }
 
-
+    function validDisabledAccount(data, userId) {
+      return data is map
+        && data.keys().hasOnly([
+          'uid',
+          'email',
+          'label',
+          'reason',
+          'disabled',
+          'disabledBy',
+          'disabledByEmail',
+          'disabledAt',
+          'updatedAt'
+        ])
+        && data.uid == userId
+        && data.disabled is bool
+        && (!('email' in data) || data.email == null || (data.email is string && data.email.size() <= 180))
+        && (!('label' in data) || data.label == null || (data.label is string && data.label.size() <= 180))
+        && (!('reason' in data) || data.reason == null || (data.reason is string && data.reason.size() <= 300))
+        && (!('disabledBy' in data) || data.disabledBy == null || (data.disabledBy is string && data.disabledBy.size() <= 180))
+        && (!('disabledByEmail' in data) || data.disabledByEmail == null || (data.disabledByEmail is string && data.disabledByEmail.size() <= 180))
+        && (!('disabledAt' in data) || isFlexibleDate(data.disabledAt))
+        && (!('updatedAt' in data) || isFlexibleDate(data.updatedAt));
+    }
 
     // ---------- Admin collection-group access ----------
-    // Admin overview counts saved app-state documents with a collectionGroup('app') query.
-    // Firestore requires a recursive match for collection-group list permissions.
     match /{path=**}/app/{appDocId} {
       allow get, list: if isAdminUser();
     }
@@ -360,18 +421,13 @@ service cloud.firestore {
     // ---------- User app state ----------
     match /users/{userId} {
       allow get, list: if false;
+      allow delete: if isOwner(userId) || isAdminUser();
 
       match /app/state {
         allow get: if isOwner(userId) || isAdminUser();
         allow list: if isAdminUser();
-
-        // Owners may only create patient app-state documents or preserve their
-        // existing role. Admins can still create doctor/admin state documents for
-        // provisioned accounts.
         allow create: if (isOwner(userId) && ownerStateCreateAllowed()) || isAdminUser();
-
         allow update: if (isOwner(userId) && ownerStateUpdateAllowed()) || isAdminUser();
-
         allow delete: if isOwner(userId) || isAdminUser();
       }
     }
@@ -383,12 +439,9 @@ service cloud.firestore {
         || (request.auth.token.email != null && adminId == request.auth.token.email)
         || isAdminUser()
       );
-
       allow list: if isAdminUser();
-
       allow create, update: if (isMainAdmin() || request.auth.token.admin == true)
         && validAdminRecord(request.resource.data);
-
       allow delete: if isMainAdmin()
         || request.auth.token.admin == true
         || (
@@ -405,6 +458,7 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isAdminUser() && validDoctorRecord(request.resource.data);
       allow update: if (isAdminUser() && validDoctorRecord(request.resource.data))
+        || validDoctorSelfScheduleUpdate(docId)
         || validDoctorSelfProfileUpdate()
         || validDoctorRatingAggregateUpdate(docId);
       allow delete: if isAdminUser()
@@ -437,14 +491,14 @@ service cloud.firestore {
         || resource.data.patientUid == request.auth.uid
         || resource.data.doctorUserId == request.auth.uid
       );
-
-      allow list: if signedIn();
-
+      allow list: if signedIn() && (
+        isAdminUser()
+        || resource.data.patientUid == request.auth.uid
+        || resource.data.doctorUserId == request.auth.uid
+      );
       allow create: if validAppointmentCreate(request.resource.data);
-
       allow update: if doctorAppointmentStatusUpdateAllowed()
         || patientAppointmentCancelAllowed();
-
       allow delete: if signedIn() && (
         isAdminUser()
         || resource.data.patientUid == request.auth.uid
@@ -463,7 +517,13 @@ service cloud.firestore {
       );
     }
 
-
+    // ---------- Disabled app accounts ----------
+    match /disabled_accounts/{userId} {
+      allow get: if isOwner(userId) || isAdminUser();
+      allow list: if isAdminUser();
+      allow create, update: if isAdminUser() && validDisabledAccount(request.resource.data, userId);
+      allow delete: if isAdminUser();
+    }
 
     // ---------- Admin audit logs ----------
     match /audit_logs/{logId} {

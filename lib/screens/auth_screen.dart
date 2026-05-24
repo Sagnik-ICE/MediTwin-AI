@@ -185,13 +185,12 @@ class _AuthScreenState extends State<AuthScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return WillPopScope(
-      onWillPop: () async {
-        if (_register) {
+    return PopScope(
+      canPop: !_register,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _register) {
           _switchMode(false);
-          return false;
         }
-        return true;
       },
       child: Scaffold(
         body: Container(

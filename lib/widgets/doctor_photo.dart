@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:characters/characters.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
@@ -37,7 +36,7 @@ class DoctorPhoto extends StatelessWidget {
                 : Image.network(
                     source,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => fallback,
+                    errorBuilder: (context, error, stackTrace) => fallback,
                   ),
       ),
     );
@@ -53,7 +52,7 @@ class DoctorPhoto extends StatelessWidget {
       return Image.memory(
         Uint8List.fromList(bytes),
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => fallback,
+        errorBuilder: (context, error, stackTrace) => fallback,
       );
     } catch (_) {
       return fallback;
@@ -83,6 +82,6 @@ class DoctorPhoto extends StatelessWidget {
   String _initials(String value) {
     final parts = value.trim().split(RegExp(r'\s+')).where((part) => part.isNotEmpty).take(2).toList();
     if (parts.isEmpty) return 'DR';
-    return parts.map((part) => part.characters.first.toUpperCase()).join();
+    return parts.map((part) => String.fromCharCode(part.runes.first).toUpperCase()).join();
   }
 }

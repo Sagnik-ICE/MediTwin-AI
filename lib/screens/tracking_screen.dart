@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/app_state.dart';
+import '../theme/app_theme.dart';
 import '../widgets/glass_card.dart';
 
 class TrackingScreen extends StatefulWidget {
@@ -153,79 +154,68 @@ class _TrackingScreenState extends State<TrackingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
       appBar: AppBar(title: const Text('Daily Health Log')),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Text(
-              'Enter today\'s actual health details. The form starts empty to avoid saving default values by mistake.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 12),
+            const _LogHero(),
+            const SizedBox(height: 14),
             GlassCard(
+              padding: const EdgeInsets.all(18),
               child: Form(
                 key: _formKey,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _sectionTitle(context, 'Vitals'),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _numberField(
-                            _sleepController,
-                            'Sleep hours',
-                            hint: 'e.g. 7.5',
-                            min: 0,
-                            max: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _numberField(
-                            _waterController,
-                            'Water glasses',
-                            hint: 'e.g. 8',
-                            min: 0,
-                            max: 50,
-                            integer: true,
-                          ),
-                        ),
-                      ],
+                    _sectionTitle(context, 'Vitals', Icons.monitor_heart_rounded),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final twoColumns = constraints.maxWidth >= 520;
+                        return Column(
+                          children: [
+                            _fieldPair(
+                              twoColumns: twoColumns,
+                              first: _numberField(
+                                _sleepController,
+                                'Sleep hours',
+                                hint: 'e.g. 7.5',
+                                min: 0,
+                                max: 24,
+                              ),
+                              second: _numberField(
+                                _waterController,
+                                'Water glasses',
+                                hint: 'e.g. 8',
+                                min: 0,
+                                max: 50,
+                                integer: true,
+                              ),
+                            ),
+                            _fieldPair(
+                              twoColumns: twoColumns,
+                              first: _numberField(
+                                _stressController,
+                                'Stress level',
+                                hint: '1-10',
+                                min: 1,
+                                max: 10,
+                                integer: true,
+                              ),
+                              second: _numberField(
+                                _exerciseController,
+                                'Exercise minutes',
+                                hint: 'e.g. 20',
+                                min: 0,
+                                max: 1440,
+                                integer: true,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _numberField(
-                            _stressController,
-                            'Stress level',
-                            hint: '1-10',
-                            min: 1,
-                            max: 10,
-                            integer: true,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _numberField(
-                            _exerciseController,
-                            'Exercise minutes',
-                            hint: 'e.g. 20',
-                            min: 0,
-                            max: 1440,
-                            integer: true,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
                     _numberField(
                       _weightController,
                       'Weight (kg)',
@@ -233,8 +223,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
                       min: 1,
                       max: 500,
                     ),
-                    const SizedBox(height: 10),
-                    _sectionTitle(context, 'Wellness'),
+                    const SizedBox(height: 8),
+                    _sectionTitle(context, 'Wellness', Icons.spa_rounded),
                     DropdownButtonFormField<String>(
                       initialValue: _mood,
                       items: const [
@@ -248,10 +238,11 @@ class _TrackingScreenState extends State<TrackingScreen> {
                       decoration: const InputDecoration(
                         labelText: 'Mood',
                         hintText: 'Select mood',
+                        prefixIcon: Icon(Icons.mood_rounded),
                       ),
                       validator: (value) => value == null || value.isEmpty ? 'Required' : null,
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
                       initialValue: _foodQuality,
                       items: const [
@@ -263,18 +254,19 @@ class _TrackingScreenState extends State<TrackingScreen> {
                       decoration: const InputDecoration(
                         labelText: 'Food quality',
                         hintText: 'Select food quality',
+                        prefixIcon: Icon(Icons.restaurant_rounded),
                       ),
                       validator: (value) => value == null || value.isEmpty ? 'Required' : null,
                     ),
-                    const SizedBox(height: 10),
-                    _sectionTitle(context, 'Symptoms'),
+                    const SizedBox(height: 14),
+                    _sectionTitle(context, 'Symptoms', Icons.fact_check_rounded),
                     Text(
                       'Select only what applies today. Leave empty if there are no symptoms.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: AppTheme.textMuted,
+                          ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 10),
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
@@ -284,45 +276,62 @@ class _TrackingScreenState extends State<TrackingScreen> {
                             label: Text(symptom),
                             selected: _symptoms.contains(symptom),
                             onSelected: _saving ? null : (value) => _toggleSymptom(symptom, value),
+                            visualDensity: VisualDensity.compact,
+                            side: const BorderSide(color: AppTheme.border),
                           ),
                       ],
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 14),
                     TextFormField(
                       controller: _notesController,
                       enabled: !_saving,
                       decoration: const InputDecoration(
                         labelText: 'Notes',
                         hintText: 'Optional notes about today',
+                        prefixIcon: Icon(Icons.notes_rounded),
                       ),
                       maxLines: 3,
                     ),
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _saving ? null : _clearForm,
-                            icon: const Icon(Icons.refresh_rounded),
-                            label: const Text('Clear'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          flex: 2,
-                          child: FilledButton.icon(
-                            onPressed: _saving ? null : _submit,
-                            icon: _saving
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
-                                  )
-                                : const Icon(Icons.check_rounded),
-                            label: Text(_saving ? 'Saving...' : 'Save Log'),
-                          ),
-                        ),
-                      ],
+                    const SizedBox(height: 16),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final wide = constraints.maxWidth >= 420;
+                        final clearButton = OutlinedButton.icon(
+                          onPressed: _saving ? null : _clearForm,
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: const Text('Clear'),
+                        );
+                        final saveButton = FilledButton.icon(
+                          onPressed: _saving ? null : _submit,
+                          icon: _saving
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.check_rounded),
+                          label: Text(_saving ? 'Saving...' : 'Save log'),
+                        );
+
+                        if (wide) {
+                          return Row(
+                            children: [
+                              Expanded(child: clearButton),
+                              const SizedBox(width: 12),
+                              Expanded(flex: 2, child: saveButton),
+                            ],
+                          );
+                        }
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            saveButton,
+                            const SizedBox(height: 10),
+                            clearButton,
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -331,6 +340,28 @@ class _TrackingScreenState extends State<TrackingScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _fieldPair({
+    required bool twoColumns,
+    required Widget first,
+    required Widget second,
+  }) {
+    if (twoColumns) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: first),
+          const SizedBox(width: 10),
+          Expanded(child: second),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [first, second],
     );
   }
 
@@ -343,7 +374,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
     bool integer = false,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 10),
       child: TextFormField(
         controller: controller,
         enabled: !_saving,
@@ -351,6 +382,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
         decoration: InputDecoration(
           labelText: label,
           hintText: hint,
+          prefixIcon: _iconForField(label),
         ),
         validator: (value) {
           final text = value?.trim() ?? '';
@@ -372,17 +404,104 @@ class _TrackingScreenState extends State<TrackingScreen> {
     );
   }
 
+  Widget? _iconForField(String label) {
+    final lower = label.toLowerCase();
+    if (lower.contains('sleep')) return const Icon(Icons.bedtime_rounded);
+    if (lower.contains('water')) return const Icon(Icons.water_drop_rounded);
+    if (lower.contains('stress')) return const Icon(Icons.psychology_rounded);
+    if (lower.contains('exercise')) return const Icon(Icons.directions_run_rounded);
+    if (lower.contains('weight')) return const Icon(Icons.monitor_weight_rounded);
+    return null;
+  }
+
   String _formatLimit(double value) {
     if (value == value.roundToDouble()) return value.toInt().toString();
     return value.toString();
   }
 
-  Widget _sectionTitle(BuildContext context, String title) {
+  Widget _sectionTitle(BuildContext context, String title, IconData icon) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        title,
-        style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+      padding: const EdgeInsets.only(bottom: 10, top: 2),
+      child: Row(
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: AppTheme.surfaceTint,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppTheme.border),
+            ),
+            child: Icon(icon, size: 17, color: AppTheme.primaryTeal),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  color: AppTheme.textPrimary,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LogHero extends StatelessWidget {
+  const _LogHero();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
+      decoration: BoxDecoration(
+        gradient: AppTheme.brandGradient,
+        borderRadius: BorderRadius.circular(30),
+        boxShadow: AppTheme.softShadow(opacity: 0.10),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+            ),
+            child: const Icon(Icons.health_and_safety_rounded, color: Colors.white, size: 28),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Daily health log',
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.4,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Enter today\'s real health details. The form stays blank to prevent accidental default saves.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.88),
+                    height: 1.4,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

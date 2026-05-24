@@ -81,7 +81,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         _AdminHero(
-                          stats: stats,
                           loading: _loading,
                           onRefresh: _loading ? null : _loadStats,
                         ),
@@ -117,18 +116,33 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 }
 
 class _AdminHero extends StatelessWidget {
-  const _AdminHero({required this.stats, required this.loading, required this.onRefresh});
+  const _AdminHero({required this.loading, required this.onRefresh});
 
-  final AdminDashboardStats stats;
   final bool loading;
   final VoidCallback? onRefresh;
 
   @override
   Widget build(BuildContext context) {
-    final totalPublicDirectory = stats.doctors + stats.emergencyResources + stats.donors;
+    final refreshButton = OutlinedButton.icon(
+      onPressed: onRefresh,
+      icon: loading
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            )
+          : const Icon(Icons.refresh_rounded),
+      label: Text(loading ? 'Refreshing' : 'Refresh'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: Colors.white,
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.38)),
+        backgroundColor: Colors.white.withValues(alpha: 0.08),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      ),
+    );
 
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
       decoration: BoxDecoration(
         gradient: AppTheme.brandGradient,
         borderRadius: BorderRadius.circular(30),
@@ -138,201 +152,71 @@ class _AdminHero extends StatelessWidget {
         builder: (context, constraints) {
           final wide = constraints.maxWidth >= 760;
 
-          final titleBlock = Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          final titleBlock = Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Admin overview',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.4,
+                      ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Monitor users, doctors, emergency records, and donor visibility from one controlled workspace.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.88),
+                        fontWeight: FontWeight.w600,
+                        height: 1.4,
+                      ),
+                ),
+              ],
+            ),
+          );
+
+          final headerRow = Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Container(
-                width: 58,
-                height: 58,
+                width: 56,
+                height: 56,
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
                 ),
-                child: const Icon(Icons.admin_panel_settings_rounded, color: Colors.white, size: 30),
+                child: const Icon(Icons.admin_panel_settings_rounded, color: Colors.white, size: 29),
               ),
               const SizedBox(width: 16),
-              Flexible(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Admin overview',
-                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -0.6,
-                          ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Monitor users, doctors, emergency records, and donor visibility from one controlled workspace.',
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: Colors.white.withValues(alpha: 0.88),
-                            fontWeight: FontWeight.w600,
-                            height: 1.38,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
+              titleBlock,
             ],
           );
 
-          final refreshButton = OutlinedButton.icon(
-            onPressed: onRefresh,
-            icon: loading
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                  )
-                : const Icon(Icons.refresh_rounded),
-            label: Text(loading ? 'Refreshing' : 'Refresh'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white,
-              side: BorderSide(color: Colors.white.withValues(alpha: 0.42)),
-              backgroundColor: Colors.white.withValues(alpha: 0.08),
-            ),
-          );
-
-          final summary = _HeroSummary(
-            users: stats.users,
-            doctors: stats.doctors,
-            directoryRecords: totalPublicDirectory,
-          );
-
-          if (!wide) {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+          if (wide) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                titleBlock,
-                const SizedBox(height: 18),
-                summary,
-                const SizedBox(height: 18),
-                Align(alignment: Alignment.centerLeft, child: refreshButton),
+                Expanded(child: headerRow),
+                const SizedBox(width: 18),
+                refreshButton,
               ],
             );
           }
 
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    titleBlock,
-                    const SizedBox(height: 18),
-                    refreshButton,
-                  ],
-                ),
-              ),
-              const SizedBox(width: 22),
-              SizedBox(width: 430, child: summary),
+              headerRow,
+              const SizedBox(height: 16),
+              Align(alignment: Alignment.centerLeft, child: refreshButton),
             ],
           );
         },
-      ),
-    );
-  }
-}
-
-class _HeroSummary extends StatelessWidget {
-  const _HeroSummary({required this.users, required this.doctors, required this.directoryRecords});
-
-  final int users;
-  final int doctors;
-  final int directoryRecords;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.13),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final compact = constraints.maxWidth < 360;
-          final items = [
-            _HeroMetric(label: 'Users', value: users, icon: Icons.groups_rounded),
-            _HeroMetric(label: 'Doctors', value: doctors, icon: Icons.medical_services_rounded),
-            _HeroMetric(label: 'Directory', value: directoryRecords, icon: Icons.folder_shared_rounded),
-          ];
-
-          if (compact) {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (var i = 0; i < items.length; i++) ...[
-                  items[i],
-                  if (i != items.length - 1) const SizedBox(height: 10),
-                ],
-              ],
-            );
-          }
-
-          return Row(
-            children: [
-              for (var i = 0; i < items.length; i++) ...[
-                Expanded(child: items[i]),
-                if (i != items.length - 1) const SizedBox(width: 10),
-              ],
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _HeroMetric extends StatelessWidget {
-  const _HeroMetric({required this.label, required this.value, required this.icon});
-
-  final String label;
-  final int value;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: Colors.white, size: 22),
-          const SizedBox(height: 14),
-          Text(
-            value.toString(),
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                  height: 1,
-                ),
-          ),
-          const SizedBox(height: 5),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.88),
-              fontWeight: FontWeight.w800,
-              fontSize: 12.5,
-            ),
-          ),
-        ],
       ),
     );
   }

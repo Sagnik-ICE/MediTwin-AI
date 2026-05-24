@@ -316,84 +316,150 @@ class _ChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Container(
-      padding: EdgeInsets.fromLTRB(wide ? 28 : 14, 16, wide ? 28 : 14, 12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor.withValues(alpha: 0.10))),
-      ),
+      padding: EdgeInsets.fromLTRB(wide ? 24 : 14, 14, wide ? 24 : 14, 12),
+      color: theme.colorScheme.surface,
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 980),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  if (!wide) ...[
-                    IconButton.filledTonal(
-                      onPressed: onShowChats,
-                      icon: const Icon(Icons.forum_rounded),
-                      tooltip: 'Conversations',
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+            decoration: BoxDecoration(
+              gradient: AppTheme.brandGradient,
+              borderRadius: BorderRadius.circular(30),
+              boxShadow: AppTheme.softShadow(opacity: 0.10),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    if (!wide) ...[
+                      IconButton(
+                        onPressed: onShowChats,
+                        icon: const Icon(Icons.forum_rounded),
+                        tooltip: 'Conversations',
+                        style: IconButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          backgroundColor: Colors.white.withValues(alpha: 0.12),
+                          side: BorderSide(color: Colors.white.withValues(alpha: 0.16)),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                    Container(
+                      width: 52,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+                      ),
+                      child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 26),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'MediTwin Assistant',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -0.45,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            activeTitle == 'New chat' ? 'Private health conversation' : activeTitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: Colors.white.withValues(alpha: 0.86),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(width: 10),
+                    FilledButton.icon(
+                      onPressed: onNewChat,
+                      icon: const Icon(Icons.add_rounded, size: 18),
+                      label: Text(wide ? 'New chat' : 'New'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: AppTheme.primaryBlue,
+                        minimumSize: const Size(0, 42),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+                      ),
+                    ),
                   ],
-                  Container(
-                    width: 46,
-                    height: 46,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(colors: [Color(0xFFCFF9F0), Color(0xFFEAF7FF)]),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12)),
-                    ),
-                    child: Icon(Icons.auto_awesome_rounded, color: Theme.of(context).colorScheme.primary),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'MediTwin Assistant',
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900, letterSpacing: -0.45),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          activeTitle == 'New chat' ? 'Private health conversation' : activeTitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                fontWeight: FontWeight.w600,
-                              ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  FilledButton.icon(
-                    onPressed: onNewChat,
-                    icon: const Icon(Icons.add_rounded),
-                    label: const Text('New chat'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final mode in modes)
-                    ChoiceChip(
-                      label: Text(mode),
-                      selected: selectedMode == mode,
-                      onSelected: (_) => onModeSelected(mode),
-                      avatar: selectedMode == mode ? const Icon(Icons.check_rounded, size: 16) : null,
-                    ),
-                ],
-              ),
-            ],
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final mode in modes)
+                      _ModePill(
+                        label: mode,
+                        selected: selectedMode == mode,
+                        onSelected: () => onModeSelected(mode),
+                      ),
+                  ],
+                ),
+              ],
+            ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ModePill extends StatelessWidget {
+  const _ModePill({required this.label, required this.selected, required this.onSelected});
+
+  final String label;
+  final bool selected;
+  final VoidCallback onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onSelected,
+      borderRadius: BorderRadius.circular(999),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? Colors.white : Colors.white.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: Colors.white.withValues(alpha: selected ? 0.92 : 0.18)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (selected) ...[
+              const Icon(Icons.check_rounded, size: 15, color: AppTheme.primaryTeal),
+              const SizedBox(width: 5),
+            ],
+            Text(
+              label,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: selected ? AppTheme.primaryBlue : Colors.white,
+                fontWeight: FontWeight.w800,
+                height: 1.1,
+              ),
+            ),
+          ],
         ),
       ),
     );

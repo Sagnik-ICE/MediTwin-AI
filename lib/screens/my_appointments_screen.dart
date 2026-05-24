@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/app_state.dart';
 import '../services/firestore_service.dart';
+import '../theme/app_theme.dart';
 import 'doctor_profile_screen.dart';
 
 class MyAppointmentsScreen extends StatefulWidget {
@@ -222,91 +223,88 @@ class _HeroPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colors = theme.colorScheme;
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [colors.primary, colors.tertiary],
-        ),
-        borderRadius: BorderRadius.circular(28),
-        boxShadow: [
-          BoxShadow(
-            color: colors.primary.withOpacity(0.18),
-            blurRadius: 28,
-            offset: const Offset(0, 14),
-          ),
-        ],
+        gradient: AppTheme.brandGradient,
+        borderRadius: BorderRadius.circular(30),
+        boxShadow: AppTheme.softShadow(opacity: 0.10),
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final wide = constraints.maxWidth >= 680;
-          final titleBlock = Column(
-            crossAxisAlignment: wide ? CrossAxisAlignment.start : CrossAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
+          final wide = constraints.maxWidth >= 760;
+
+          final titleRow = Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Container(
                 width: 56,
                 height: 56,
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.16),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: Colors.white.withOpacity(0.24)),
+                  color: Colors.white.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
                 ),
-                child: const Icon(Icons.event_note_rounded, color: Colors.white, size: 30),
+                child: const Icon(Icons.event_note_rounded, color: Colors.white, size: 29),
               ),
-              const SizedBox(height: 16),
-              Text(
-                'My appointments',
-                textAlign: wide ? TextAlign.left : TextAlign.center,
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Follow appointment requests, confirmed visits, and doctor-assigned serial numbers.',
-                textAlign: wide ? TextAlign.left : TextAlign.center,
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  color: Colors.white.withOpacity(0.88),
-                  height: 1.35,
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'My appointments',
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.4,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Follow appointment requests, confirmed visits, and doctor-assigned serial numbers.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.88),
+                        height: 1.4,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           );
 
           final metrics = Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            alignment: wide ? WrapAlignment.end : WrapAlignment.center,
+            spacing: 10,
+            runSpacing: 10,
+            alignment: wide ? WrapAlignment.end : WrapAlignment.start,
             children: [
               _HeroMetric(label: 'Active', value: active.toString()),
               _HeroMetric(label: 'Total', value: total.toString()),
             ],
           );
 
-          if (!wide) {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
+          if (wide) {
+            return Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                titleBlock,
-                const SizedBox(height: 20),
+                Expanded(child: titleRow),
+                const SizedBox(width: 18),
                 metrics,
               ],
             );
           }
 
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(child: titleBlock),
-              const SizedBox(width: 24),
+              titleRow,
+              const SizedBox(height: 16),
               metrics,
             ],
           );
@@ -325,30 +323,31 @@ class _HeroMetric extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 116,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      constraints: const BoxConstraints(minWidth: 96, minHeight: 50),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.16),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.24)),
+        color: Colors.white.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             value,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
                   color: Colors.white,
                   fontWeight: FontWeight.w900,
+                  height: 1,
                 ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(width: 8),
           Text(
             label,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.white.withOpacity(0.86),
-                  fontWeight: FontWeight.w700,
+                  color: Colors.white.withValues(alpha: 0.88),
+                  fontWeight: FontWeight.w800,
+                  height: 1,
                 ),
           ),
         ],
@@ -392,9 +391,9 @@ class _SectionHeader extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: colors.primaryContainer.withOpacity(0.55),
+            color: colors.primaryContainer.withValues(alpha: 0.55),
             borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: colors.primary.withOpacity(0.18)),
+            border: Border.all(color: colors.primary.withValues(alpha: 0.18)),
           ),
           child: Text(
             count.toString(),
@@ -437,24 +436,52 @@ class _AppointmentCard extends StatelessWidget {
       appointment['name'],
     ], fallback: 'Doctor');
     final chamberName = _firstNonEmpty([appointment['chamberName'], appointment['chamber']], fallback: 'Chamber not specified');
-    final timeBlock = _firstNonEmpty([appointment['timeBlock'], appointment['timeLabel']], fallback: 'Time block not specified');
-    final reason = _firstNonEmpty([appointment['reason']], fallback: 'No reason added');
+    final chamberContact = _firstNonEmpty([
+      appointment['appointmentContact'],
+      appointment['chamberContact'],
+      appointment['contact'],
+    ], fallback: '');
+    final timeBlock = _firstNonEmpty([
+      appointment['appointmentTimeLabel'],
+      appointment['slotLabel'],
+      appointment['timeBlock'],
+      appointment['timeLabel'],
+    ], fallback: 'Time block not specified');
+    final reason = _firstNonEmpty([appointment['reason']], fallback: '').trim();
     final serial = (appointment['serialNumber'] ?? '').toString().trim();
+    final showReason = !compact && reason.isNotEmpty;
+
+    final openDoctorButton = OutlinedButton.icon(
+      onPressed: onOpenDoctor,
+      icon: const Icon(Icons.open_in_new_rounded, size: 17),
+      label: const Text('Doctor profile'),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(0, 40),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
+      ),
+    );
+
+    final cancelButton = onCancel == null
+        ? null
+        : TextButton.icon(
+            onPressed: updating ? null : onCancel,
+            icon: const Icon(Icons.cancel_outlined, size: 17),
+            label: const Text('Cancel'),
+            style: TextButton.styleFrom(
+              minimumSize: const Size(0, 40),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+              foregroundColor: AppTheme.primaryBlue,
+            ),
+          );
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: colors.surface,
+        color: AppTheme.surface,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: colors.outlineVariant.withOpacity(0.72)),
-        boxShadow: [
-          BoxShadow(
-            color: colors.shadow.withOpacity(0.06),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
-          ),
-        ],
+        border: Border.all(color: AppTheme.border),
+        boxShadow: AppTheme.softShadow(opacity: 0.055),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -464,27 +491,39 @@ class _AppointmentCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 48,
-                height: 48,
+                width: 44,
+                height: 44,
                 decoration: BoxDecoration(
-                  color: colors.primaryContainer.withOpacity(0.55),
+                  color: AppTheme.surfaceTint,
                   borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.border),
                 ),
-                child: Icon(Icons.local_hospital_rounded, color: colors.primary),
+                child: const Icon(Icons.local_hospital_rounded, color: AppTheme.primaryBlue, size: 23),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       doctorName,
-                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: AppTheme.textPrimary,
+                        height: 1.15,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       appointmentAt == null ? 'Date not assigned' : _formatDateTime(appointmentAt),
-                      style: theme.textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppTheme.textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ],
                 ),
@@ -493,47 +532,61 @@ class _AppointmentCard extends StatelessWidget {
               _StatusBadge(label: status, color: statusColor),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Wrap(
-            spacing: 10,
-            runSpacing: 10,
+            spacing: 8,
+            runSpacing: 8,
             children: [
               _InfoChip(icon: Icons.meeting_room_rounded, label: chamberName),
               _InfoChip(icon: Icons.schedule_rounded, label: timeBlock),
+              if (chamberContact.isNotEmpty) _InfoChip(icon: Icons.call_rounded, label: chamberContact),
               if (serial.isNotEmpty) _InfoChip(icon: Icons.confirmation_number_rounded, label: 'Serial $serial'),
             ],
           ),
-          if (!compact) ...[
-            const SizedBox(height: 14),
+          if (showReason) ...[
+            const SizedBox(height: 12),
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
               decoration: BoxDecoration(
-                color: colors.surfaceContainerHighest.withOpacity(0.48),
+                color: AppTheme.surfaceSoft.withValues(alpha: 0.62),
                 borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: AppTheme.border.withValues(alpha: 0.72)),
               ),
               child: Text(
                 reason,
-                style: theme.textTheme.bodyMedium?.copyWith(height: 1.35),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: AppTheme.textSecondary,
+                  height: 1.35,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ],
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              OutlinedButton.icon(
-                onPressed: onOpenDoctor,
-                icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                label: const Text('Doctor profile'),
-              ),
-              const Spacer(),
-              if (onCancel != null)
-                TextButton.icon(
-                  onPressed: updating ? null : onCancel,
-                  icon: const Icon(Icons.cancel_outlined, size: 18),
-                  label: const Text('Cancel'),
-                ),
-            ],
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth < 360) {
+                return Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    openDoctorButton,
+                    ?cancelButton,
+                  ],
+                );
+              }
+
+              return Row(
+                children: [
+                  openDoctorButton,
+                  const Spacer(),
+                  ?cancelButton,
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -549,24 +602,27 @@ class _InfoChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: colors.surfaceContainerHighest.withOpacity(0.5),
+        color: AppTheme.surfaceTint,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: colors.outlineVariant.withOpacity(0.7)),
+        border: Border.all(color: AppTheme.border),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: colors.primary),
-          const SizedBox(width: 7),
+          Icon(icon, size: 15, color: AppTheme.primaryTeal),
+          const SizedBox(width: 6),
           Flexible(
             child: Text(
               label,
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppTheme.textSecondary,
+                    fontWeight: FontWeight.w800,
+                    height: 1.1,
+                  ),
             ),
           ),
         ],
@@ -584,17 +640,19 @@ class _StatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+      constraints: const BoxConstraints(minHeight: 34),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.11),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withOpacity(0.28)),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
       ),
       child: Text(
         _titleCase(label),
-        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
           color: color,
           fontWeight: FontWeight.w900,
+          height: 1.1,
         ),
       ),
     );
@@ -615,7 +673,7 @@ class _SoftNotice extends StatelessWidget {
       decoration: BoxDecoration(
         color: colors.surface,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: colors.outlineVariant.withOpacity(0.75)),
+        border: Border.all(color: colors.outlineVariant.withValues(alpha: 0.75)),
       ),
       child: Text(text, style: TextStyle(color: colors.onSurfaceVariant)),
     );
@@ -635,7 +693,7 @@ class _EmptyAppointmentsCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: colors.surface,
         borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: colors.outlineVariant.withOpacity(0.7)),
+        border: Border.all(color: colors.outlineVariant.withValues(alpha: 0.7)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -644,7 +702,7 @@ class _EmptyAppointmentsCard extends StatelessWidget {
             width: 64,
             height: 64,
             decoration: BoxDecoration(
-              color: colors.primaryContainer.withOpacity(0.55),
+              color: colors.primaryContainer.withValues(alpha: 0.55),
               borderRadius: BorderRadius.circular(22),
             ),
             child: Icon(Icons.event_available_rounded, color: colors.primary, size: 32),
@@ -678,7 +736,7 @@ class _LoadingCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: colors.surface,
         borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: colors.outlineVariant.withOpacity(0.7)),
+        border: Border.all(color: colors.outlineVariant.withValues(alpha: 0.7)),
       ),
       child: const Center(child: CircularProgressIndicator()),
     );

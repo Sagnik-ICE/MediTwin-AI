@@ -782,8 +782,8 @@ class _ProfileHero extends StatelessWidget {
       icon: const Icon(Icons.edit_rounded, size: 18),
       label: const Text('Edit profile'),
       style: FilledButton.styleFrom(
-        minimumSize: const Size(0, 44),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        minimumSize: const Size(0, 42),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
       ),
     );
 
@@ -797,13 +797,13 @@ class _ProfileHero extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             textAlign: centered ? TextAlign.center : TextAlign.start,
-            style: theme.textTheme.titleLarge?.copyWith(
+            style: theme.textTheme.headlineSmall?.copyWith(
               color: colorScheme.onSurface,
               fontWeight: FontWeight.w900,
               height: 1.08,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Text(
             email,
             maxLines: 1,
@@ -842,7 +842,7 @@ class _ProfileHero extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: colorScheme.surface,
         borderRadius: BorderRadius.circular(28),
@@ -857,55 +857,45 @@ class _ProfileHero extends StatelessWidget {
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final wide = constraints.maxWidth >= 700;
+          final wide = constraints.maxWidth >= 720;
+
+          final content = Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              identityBlock(centered: false),
+              const SizedBox(height: 12),
+              pills(centered: false),
+            ],
+          );
 
           if (wide) {
-            final textWidth = (constraints.maxWidth - 78 - 18 - 18 - 160)
-                .clamp(260.0, constraints.maxWidth);
-
             return Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 _Avatar(name: name),
-                const SizedBox(width: 18),
-                SizedBox(
-                  width: textWidth,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      identityBlock(centered: false),
-                      const SizedBox(height: 14),
-                      pills(centered: false),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 18),
+                const SizedBox(width: 16),
+                Expanded(child: content),
+                const SizedBox(width: 16),
                 editButton,
               ],
             );
           }
 
-          final detailsWidth = (constraints.maxWidth - 78 - 16).clamp(160.0, constraints.maxWidth);
-
           return Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   _Avatar(name: name),
                   const SizedBox(width: 16),
-                  SizedBox(
-                    width: detailsWidth,
-                    child: identityBlock(centered: false),
-                  ),
+                  Expanded(child: identityBlock(centered: false)),
                 ],
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 14),
               pills(centered: false),
-              const SizedBox(height: 18),
+              const SizedBox(height: 14),
               SizedBox(width: double.infinity, child: editButton),
             ],
           );
@@ -934,8 +924,8 @@ class _Avatar extends StatelessWidget {
             .join();
 
     return Container(
-      width: 78,
-      height: 78,
+      width: 72,
+      height: 72,
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -960,7 +950,7 @@ class _Avatar extends StatelessWidget {
         initials,
         style: TextStyle(
           color: colorScheme.primary,
-          fontSize: 25,
+          fontSize: 23,
           fontWeight: FontWeight.w900,
         ),
       ),

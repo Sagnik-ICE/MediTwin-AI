@@ -8,7 +8,6 @@ import 'admin_shell.dart';
 import 'auth_screen.dart';
 import 'doctor_shell.dart';
 import 'main_shell.dart';
-import 'onboarding_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});

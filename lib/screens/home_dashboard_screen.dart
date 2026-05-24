@@ -126,89 +126,114 @@ class _HeroPanel extends StatelessWidget {
     final hasToday = today != null;
 
     return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
       decoration: BoxDecoration(
         gradient: AppTheme.brandGradient,
-        borderRadius: BorderRadius.circular(AppTheme.radiusXl),
-        boxShadow: AppTheme.softShadow(opacity: 0.14),
+        borderRadius: BorderRadius.circular(30),
+        boxShadow: AppTheme.softShadow(opacity: 0.10),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(22),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final compact = constraints.maxWidth < 720;
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final wide = constraints.maxWidth >= 760;
 
-            final titleBlock = Column(
-              crossAxisAlignment: compact ? CrossAxisAlignment.start : CrossAxisAlignment.start,
+          final titleBlock = Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'Good to see you, $firstName',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w900,
+                        letterSpacing: -0.4,
+                        height: 1.08,
                       ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Text(
                   hasToday
                       ? 'Today\'s log is saved. Review your snapshot and keep your routine steady.'
                       : 'Add today\'s log to refresh your score, insight, and reminder plan.',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Colors.white.withValues(alpha: 0.88),
                         height: 1.4,
+                        fontWeight: FontWeight.w600,
                       ),
                 ),
               ],
-            );
+            ),
+          );
 
-            final status = _HeroStatusPill(
-              hasToday: hasToday,
-              latest: latest,
-            );
-
-            final action = FilledButton.icon(
-              onPressed: onAddData,
-              icon: const Icon(Icons.add_rounded),
-              label: Text(hasToday ? 'Update today\'s log' : 'Add today\'s log'),
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: AppTheme.primaryNavy,
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          final header = Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+                ),
+                child: const Icon(Icons.monitor_heart_rounded, color: Colors.white, size: 29),
               ),
-            );
+              const SizedBox(width: 16),
+              titleBlock,
+            ],
+          );
 
-            if (compact) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  titleBlock,
-                  const SizedBox(height: 16),
-                  status,
-                  const SizedBox(height: 16),
-                  SizedBox(width: double.infinity, child: action),
-                ],
-              );
-            }
+          final status = _HeroStatusPill(hasToday: hasToday, latest: latest);
+          final action = FilledButton.icon(
+            onPressed: onAddData,
+            icon: const Icon(Icons.add_rounded, size: 18),
+            label: Text(hasToday ? 'Update log' : 'Add log'),
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: AppTheme.primaryNavy,
+              minimumSize: const Size(0, 42),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+            ),
+          );
 
+          if (wide) {
             return Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Expanded(child: titleBlock),
-                const SizedBox(width: 24),
+                Expanded(child: header),
+                const SizedBox(width: 18),
                 SizedBox(
-                  width: 310,
+                  width: 250,
                   child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       status,
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 10),
                       action,
                     ],
                   ),
                 ),
               ],
             );
-          },
-        ),
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              header,
+              const SizedBox(height: 14),
+              status,
+              const SizedBox(height: 12),
+              SizedBox(width: double.infinity, child: action),
+            ],
+          );
+        },
       ),
     );
   }
@@ -223,49 +248,46 @@ class _HeroStatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(15),
+      constraints: const BoxConstraints(minHeight: 48),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
       ),
       child: Row(
         children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(
-              hasToday ? Icons.check_circle_rounded : Icons.pending_actions_rounded,
-              color: Colors.white,
-              size: 20,
-            ),
+          Icon(
+            hasToday ? Icons.check_circle_rounded : Icons.pending_actions_rounded,
+            color: Colors.white,
+            size: 20,
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   hasToday ? 'Today logged' : 'Today not logged',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w900,
+                    height: 1.1,
                   ),
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  latest == null
-                      ? 'No previous entries yet'
-                      : 'Latest entry: ${_formatLongDate(latest!.date)}',
+                  latest == null ? 'No previous entries yet' : 'Latest: ${_formatLongDate(latest!.date)}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.82),
-                    fontSize: 13,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    height: 1.1,
                   ),
                 ),
               ],

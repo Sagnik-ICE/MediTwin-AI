@@ -1,83 +1,84 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
-import '../providers/app_state.dart';
-import '../widgets/disclaimer_banner.dart';
-import '../widgets/glass_card.dart';
+import '../theme/app_theme.dart';
 
-class SimulateScreen extends StatefulWidget {
+class SimulateScreen extends StatelessWidget {
   const SimulateScreen({super.key});
 
   @override
-  State<SimulateScreen> createState() => _SimulateScreenState();
-}
-
-class _SimulateScreenState extends State<SimulateScreen> {
-  final _controller = TextEditingController(text: 'What if I reduce stress and exercise more?');
-  Map<String, dynamic>? _result;
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _simulate() {
-    final text = _controller.text.trim();
-    if (text.isEmpty) {
-      return;
-    }
-
-    setState(() {
-      _result = context.read<AppState>().runSimulation(text);
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Future Simulation')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          const DisclaimerBanner(),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _controller,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'Scenario',
-              hintText: 'What happens if I continue this lifestyle?',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 10),
-          FilledButton.icon(
-            onPressed: _simulate,
-            icon: const Icon(Icons.timeline_rounded),
-            label: const Text('Run Simulation'),
-          ),
-          const SizedBox(height: 14),
-          if (_result != null)
-            GlassCard(
-              child: Column(
+      appBar: AppBar(title: const Text('Feature removed')),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(24),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(22),
+              decoration: BoxDecoration(
+                gradient: AppTheme.brandGradient,
+                borderRadius: BorderRadius.circular(30),
+                boxShadow: AppTheme.softShadow(opacity: 0.10),
+              ),
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('7-day projection: ${_result!['day7']}'),
-                  Text('30-day projection: ${_result!['day30']}'),
-                  Text('90-day projection: ${_result!['day90']}'),
-                  const SizedBox(height: 8),
-                  Text('Possible risks', style: Theme.of(context).textTheme.titleSmall),
-                  ...(_result!['risks'] as List<dynamic>).map((r) => Text('- $r')),
-                  const SizedBox(height: 8),
-                  Text('Improvement suggestions', style: Theme.of(context).textTheme.titleSmall),
-                  ...(_result!['suggestions'] as List<dynamic>).map((s) => Text('- $s')),
-                  const SizedBox(height: 8),
-                  const Text('This is only a wellness simulation, not a medical prediction.'),
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+                    ),
+                    child: const Icon(Icons.block_rounded, color: Colors.white, size: 28),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Future Simulation removed',
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            height: 1.1,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'This feature is no longer part of MediTwin AI. Use Daily Health Log and Health Statistics for tracking and review.',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: Colors.white.withValues(alpha: 0.88),
+                            fontWeight: FontWeight.w600,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
-        ],
+            const SizedBox(height: 16),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Text(
+                  'No simulation input, prediction, projection, or scenario analysis is available in this build.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: AppTheme.textSecondary,
+                    height: 1.45,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

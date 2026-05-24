@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../constants/bd_locations.dart';
 import '../providers/app_state.dart';
 import '../services/firestore_service.dart';
+import '../theme/app_theme.dart';
 import '../utils/debug_logger.dart';
 import '../widgets/glass_card.dart';
 
@@ -128,40 +129,9 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
       builder: (context, appState, _) {
         final isAdmin = appState.isAdmin;
         return Scaffold(
-          appBar: AppBar(
-            title: Text(_selectedType == null ? 'Emergency resources' : _typeTitle(_selectedType!)),
-            leading: _selectedType == null
-                ? null
-                : IconButton(
-                    tooltip: 'Back',
-                    onPressed: () => setState(() {
-                      _selectedType = null;
-                      _items = [];
-                      _query = '';
-                      _searchController.clear();
-                    }),
-                    icon: const Icon(Icons.arrow_back_rounded),
-                  ),
-            actions: [
-              if (_selectedType != null)
-                Padding(
-                  padding: const EdgeInsets.only(right: 10),
-                  child: IconButton.filledTonal(
-                    tooltip: 'Refresh',
-                    onPressed: _loading ? null : _reload,
-                    icon: const Icon(Icons.refresh_rounded),
-                  ),
-                ),
-            ],
+          body: SafeArea(
+            child: _selectedType == null ? _landing(context, isAdmin) : _panel(context, isAdmin),
           ),
-          floatingActionButton: isAdmin && _selectedType != null
-              ? FloatingActionButton.extended(
-                  onPressed: _saving ? null : () => _openEntryForm(type: _selectedType!),
-                  icon: const Icon(Icons.add_rounded),
-                  label: Text('Add ${_typeTitle(_selectedType!).toLowerCase()}'),
-                )
-              : null,
-          body: _selectedType == null ? _landing(context, isAdmin) : _panel(context, isAdmin),
         );
       },
     );
@@ -169,7 +139,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
 
   Widget _landing(BuildContext context, bool isAdmin) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
       children: [
         _heroCard(context, isAdmin),
         const SizedBox(height: 18),
@@ -234,57 +204,68 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
   }
 
   Widget _heroCard(BuildContext context, bool isAdmin) {
-    final colors = Theme.of(context).colorScheme;
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(32),
-        gradient: LinearGradient(
-          colors: [colors.primary, colors.tertiary],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: colors.primary.withValues(alpha: 0.20),
-            blurRadius: 24,
-            offset: const Offset(0, 12),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(30),
+        gradient: AppTheme.brandGradient,
+        boxShadow: AppTheme.softShadow(opacity: 0.10),
       ),
-      padding: const EdgeInsets.all(26),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 58,
-            height: 58,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final wide = constraints.maxWidth >= 760;
+
+          final titleBlock = Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Emergency support',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  isAdmin
+                      ? 'Manage reliable emergency contacts, facilities, blood banks, and donor records.'
+                      : 'Find essential emergency contacts by category and location.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.88),
+                        height: 1.4,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ],
             ),
-            child: const Icon(Icons.emergency_rounded, color: Colors.white, size: 28),
-          ),
-          const SizedBox(height: 18),
-          Text(
-            'Emergency support',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
+          );
+
+          final headerRow = Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
                 ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            isAdmin
-                ? 'Manage reliable emergency contacts, facilities, blood banks, and donor records.'
-                : 'Find essential emergency contacts by category and location.',
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Colors.white.withValues(alpha: 0.88),
-                  height: 1.45,
-                  fontWeight: FontWeight.w600,
-                ),
-          ),
-        ],
+                child: const Icon(Icons.emergency_rounded, color: Colors.white, size: 28),
+              ),
+              const SizedBox(width: 16),
+              titleBlock,
+            ],
+          );
+
+          if (wide) {
+            return headerRow;
+          }
+
+          return headerRow;
+        },
       ),
     );
   }
@@ -297,7 +278,6 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     required String subtitle,
     required VoidCallback onTap,
   }) {
-    final colors = Theme.of(context).colorScheme;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(28),
@@ -324,14 +304,14 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                     title,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w900,
-                          color: colors.onSurface,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                   ),
                   const SizedBox(height: 6),
                   Text(
                     subtitle,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: colors.onSurfaceVariant,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                           height: 1.35,
                         ),
                   ),
@@ -339,7 +319,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
               ),
             ),
             const SizedBox(width: 12),
-            Icon(Icons.arrow_forward_rounded, color: colors.primary),
+            Icon(Icons.arrow_forward_rounded, color: Theme.of(context).colorScheme.primary),
           ],
         ),
       ),
@@ -348,8 +328,10 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
 
   Widget _panel(BuildContext context, bool isAdmin) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 12, 18, 110),
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 110),
       children: [
+        _sectionHeaderCard(context),
+        const SizedBox(height: 16),
         _filterCard(context, isAdmin),
         const SizedBox(height: 16),
         if (_loading)
@@ -382,8 +364,72 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     );
   }
 
+  Widget _sectionHeaderCard(BuildContext context) {
+    final type = _selectedType ?? '';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+      decoration: BoxDecoration(
+        gradient: AppTheme.brandGradient,
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: AppTheme.softShadow(opacity: 0.10),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          IconButton.filledTonal(
+            tooltip: 'Back',
+            onPressed: () => setState(() {
+              _selectedType = null;
+              _items = [];
+              _query = '';
+              _searchController.clear();
+            }),
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.white.withValues(alpha: 0.14),
+              foregroundColor: Colors.white,
+            ),
+            icon: const Icon(Icons.arrow_back_rounded),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _typeTitle(type),
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Search location-based records and contact details quickly.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.88),
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          IconButton.filledTonal(
+            tooltip: 'Refresh',
+            onPressed: _loading ? null : _reload,
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.white.withValues(alpha: 0.14),
+              foregroundColor: Colors.white,
+            ),
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _filterCard(BuildContext context, bool isAdmin) {
-    final colors = Theme.of(context).colorScheme;
     final type = _selectedType ?? '';
     return GlassCard(
       padding: const EdgeInsets.all(20),
@@ -413,7 +459,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                     const SizedBox(height: 4),
                     Text(
                       '${_filteredItems.length} record${_filteredItems.length == 1 ? '' : 's'} available',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                   ],
                 ),
@@ -519,7 +565,6 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
   }
 
   Widget _recordCard(BuildContext context, Map<String, dynamic> item, bool isAdmin) {
-    final colors = Theme.of(context).colorScheme;
     final type = (item['type'] ?? _selectedType ?? '').toString();
     final contact = _contactText(item);
     final note = _noteText(item);
@@ -534,9 +579,9 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
         child: Container(
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            color: colors.surface,
+            color: Theme.of(context).colorScheme.surface,
             borderRadius: BorderRadius.circular(26),
-            border: Border.all(color: colors.outlineVariant.withValues(alpha: 0.70)),
+            border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.70)),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.04),
@@ -596,7 +641,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                       ],
                     )
                   else
-                    Icon(Icons.chevron_right_rounded, color: colors.onSurfaceVariant),
+                    Icon(Icons.chevron_right_rounded, color: Theme.of(context).colorScheme.onSurfaceVariant),
                 ],
               ),
               const SizedBox(height: 16),
@@ -609,7 +654,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: colors.surfaceContainerHighest.withValues(alpha: 0.55),
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
                     borderRadius: BorderRadius.circular(18),
                   ),
                   child: Text(
@@ -628,18 +673,17 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
   }
 
   Widget _chip(BuildContext context, String label, {required IconData icon}) {
-    final colors = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: colors.primaryContainer.withValues(alpha: 0.55),
+        color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: colors.outlineVariant.withValues(alpha: 0.55)),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.55)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 15, color: colors.primary),
+          Icon(icon, size: 15, color: Theme.of(context).colorScheme.primary),
           const SizedBox(width: 6),
           Text(label, style: Theme.of(context).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w800)),
         ],
@@ -648,16 +692,15 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
   }
 
   Widget _infoLine(BuildContext context, IconData icon, String text) {
-    final colors = Theme.of(context).colorScheme;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 18, color: colors.primary),
+        Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
         const SizedBox(width: 9),
         Expanded(
           child: Text(
             text,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant, height: 1.35),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.35),
           ),
         ),
       ],
@@ -665,14 +708,13 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
   }
 
   Widget _emptyState(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(
-        color: colors.surface,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: colors.outlineVariant.withValues(alpha: 0.65)),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.65)),
       ),
       child: Column(
         children: [
@@ -680,10 +722,10 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
             width: 58,
             height: 58,
             decoration: BoxDecoration(
-              color: colors.primaryContainer.withValues(alpha: 0.7),
+              color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.7),
               borderRadius: BorderRadius.circular(20),
             ),
-            child: Icon(Icons.search_off_rounded, color: colors.primary),
+            child: Icon(Icons.search_off_rounded, color: Theme.of(context).colorScheme.primary),
           ),
           const SizedBox(height: 14),
           Text(
@@ -694,7 +736,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
           Text(
             'Try a different search term, location, or filter.',
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
         ],
       ),
@@ -761,20 +803,19 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
   }
 
   Widget _detailRow(BuildContext context, String label, String value) {
-    final colors = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: colors.surfaceContainerHighest.withValues(alpha: 0.55),
+          color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
           borderRadius: BorderRadius.circular(18),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: Theme.of(context).textTheme.labelLarge?.copyWith(color: colors.onSurfaceVariant)),
+            Text(label, style: Theme.of(context).textTheme.labelLarge?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
             const SizedBox(height: 5),
             Text(value, style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w700)),
           ],
@@ -1076,14 +1117,6 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     }
   }
 
-  String _entrySubtitle(Map<String, dynamic> item) {
-    final parts = <String>[
-      _locationText(item),
-      if ((item['bloodGroup'] ?? '').toString().trim().isNotEmpty) (item['bloodGroup'] ?? '').toString(),
-      _contactText(item),
-    ].where((value) => value.trim().isNotEmpty).toList();
-    return parts.join(' • ');
-  }
 
   String _locationText(Map<String, dynamic> item) {
     final division = (item['division'] ?? '').toString().trim();

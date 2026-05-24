@@ -14,7 +14,6 @@ import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
 import '../services/health_score_service.dart';
 import '../services/risk_detection_service.dart';
-import '../services/simulation_service.dart';
 import '../services/storage_service.dart';
 import '../services/local_db.dart';
 import '../services/notification_service.dart';
@@ -133,14 +132,17 @@ class AppState extends ChangeNotifier {
     await LocalDb.init();
 
     if (loggedIn) {
-      await _authService.refreshClaims();
-      await _refreshAdminStatus();
-      await _pullCloudStateIfAvailable();
-      // If cloud returned no logs, try loading local cache as a fallback
-      if (logs.isEmpty) {
-        final local = await LocalDb.loadHealthLogs();
-        if (local.isNotEmpty) {
-          logs = local;
+      final allowed = await _ensureCurrentAccountIsEnabled();
+      if (allowed) {
+        await _authService.refreshClaims();
+        await _refreshAdminStatus();
+        await _pullCloudStateIfAvailable();
+        // If cloud returned no logs, try loading local cache as a fallback
+        if (logs.isEmpty) {
+          final local = await LocalDb.loadHealthLogs();
+          if (local.isNotEmpty) {
+            logs = local;
+          }
         }
       }
     } else {
@@ -486,10 +488,6 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Map<String, dynamic> runSimulation(String scenario) {
-    return SimulationService.simulate(scenario: scenario, history: logs);
-  }
-
   Future<String?> updateProfile(UserProfile newProfile) async {
     final previousProfile = profile;
 
@@ -600,14 +598,22 @@ class AppState extends ChangeNotifier {
 
   Future<String?> login(String email, String password) async {
     final error = await _authService.login(email: email, password: password);
-    if (error == null) {
-      loggedIn = true;
-      _resetUserSessionState();
-      await _refreshAdminStatus();
-      await _pullCloudStateIfAvailable();
-      notifyListeners();
+    if (error != null) {
+      return error;
     }
-    return error;
+
+    final allowed = await _ensureCurrentAccountIsEnabled();
+    if (!allowed) {
+      notifyListeners();
+      return 'This account is no longer active in MediTwin. Contact an administrator if this is unexpected.';
+    }
+
+    loggedIn = true;
+    _resetUserSessionState();
+    await _refreshAdminStatus();
+    await _pullCloudStateIfAvailable();
+    notifyListeners();
+    return null;
   }
 
   Future<String?> register(
@@ -731,6 +737,29 @@ class AppState extends ChangeNotifier {
     isChatLoading = false;
   }
 
+  Future<bool> _ensureCurrentAccountIsEnabled() async {
+    if (!_authService.canUseFirebase) {
+      return true;
+    }
+
+    final userId = _authService.currentUserId;
+    if (userId == null || userId.trim().isEmpty) {
+      return true;
+    }
+
+    final disabled = await _firestoreService.isAccountDisabled(userId);
+    if (!disabled) {
+      return true;
+    }
+
+    DebugLogger.warning('Blocked disabled MediTwin account $userId from opening the app');
+    await _authService.logout();
+    loggedIn = false;
+    isAdmin = false;
+    _resetUserSessionState();
+    return false;
+  }
+
   Future<void> _refreshAdminStatus() async {
     await _authService.refreshClaims();
     final email = _authService.currentUserEmail?.toLowerCase();
@@ -742,6 +771,12 @@ class AppState extends ChangeNotifier {
 
   /// Public helper to refresh auth-related state and pull cloud user state.
   Future<void> refreshAuthState() async {
+    final allowed = await _ensureCurrentAccountIsEnabled();
+    if (!allowed) {
+      notifyListeners();
+      return;
+    }
+
     await _refreshAdminStatus();
     await _pullCloudStateIfAvailable();
     notifyListeners();
@@ -1031,7 +1066,7 @@ class AppState extends ChangeNotifier {
     if (!isMainAdmin) {
       return;
     }
-    await _firestoreService.deleteAdmin(adminId);
+    await _firestoreService.deleteAdminCompletely(adminId);
   }
 
   String get aiServerIp => apiUrl.trim().isEmpty ? StorageService.defaultApiUrl : apiUrl;

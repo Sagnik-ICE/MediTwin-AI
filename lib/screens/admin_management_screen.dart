@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../constants/bd_locations.dart';
 import '../models/user_profile.dart';
 import '../providers/app_state.dart';
+import '../theme/app_theme.dart';
 
 class AdminManagementScreen extends StatefulWidget {
   const AdminManagementScreen({super.key});
@@ -270,7 +271,6 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
   }
 
   Widget _buildCreatePanel(BuildContext context, AppState appState, {required bool wide}) {
-    final colors = Theme.of(context).colorScheme;
     final districts = _division.isEmpty ? const <String>[] : BdLocations.districtsFor(_division);
 
     return _SectionCard(
@@ -450,20 +450,20 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: colors.primaryContainer.withOpacity(0.24),
+                color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.24),
                 borderRadius: BorderRadius.circular(22),
-                border: Border.all(color: colors.primary.withOpacity(0.12)),
+                border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12)),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.verified_user_rounded, color: colors.primary),
+                  Icon(Icons.verified_user_rounded, color: Theme.of(context).colorScheme.primary),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       'Admin access is restricted. New admins can manage doctors, emergency resources, and admin-only dashboards.',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: colors.onSurfaceVariant,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
                             height: 1.4,
                           ),
                     ),
@@ -505,7 +505,6 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
   }
 
   Widget _buildAdminsPanel(BuildContext context, AppState appState) {
-    final colors = Theme.of(context).colorScheme;
     final mainAdmin = _admins.where((admin) {
       return (admin['email']?.toString().toLowerCase() ?? '') == AppState.mainAdminEmail.toLowerCase();
     }).length;
@@ -555,13 +554,13 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
               width: double.infinity,
               padding: const EdgeInsets.all(22),
               decoration: BoxDecoration(
-                color: colors.surfaceContainerHighest.withOpacity(0.35),
+                color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
                 borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: colors.outlineVariant.withOpacity(0.7)),
+                border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.7)),
               ),
               child: Column(
                 children: [
-                  Icon(Icons.admin_panel_settings_outlined, size: 34, color: colors.onSurfaceVariant),
+                  Icon(Icons.admin_panel_settings_outlined, size: 34, color: Theme.of(context).colorScheme.onSurfaceVariant),
                   const SizedBox(height: 10),
                   Text(
                     'No additional admins found',
@@ -570,7 +569,7 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
                   const SizedBox(height: 4),
                   Text(
                     'Created admins will appear here.',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
                   ),
                 ],
               ),
@@ -602,166 +601,134 @@ class _HeroPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(26),
+    final refreshButton = OutlinedButton.icon(
+      onPressed: loading ? null : onRefresh,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: Colors.white,
+        disabledForegroundColor: Colors.white.withValues(alpha: 0.55),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.38)),
+        backgroundColor: Colors.white.withValues(alpha: 0.08),
+        minimumSize: const Size(132, 50),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 0),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      ),
+      icon: loading
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            )
+          : const Icon(Icons.refresh_rounded),
+      label: Text(loading ? 'Refreshing' : 'Refresh'),
+    );
+
+    final adminChip = Container(
+      constraints: const BoxConstraints(minHeight: 50),
+      padding: const EdgeInsets.symmetric(horizontal: 18),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [colors.primary, colors.tertiary],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(32),
-        boxShadow: [
-          BoxShadow(
-            color: colors.primary.withOpacity(0.18),
-            blurRadius: 28,
-            offset: const Offset(0, 16),
+        color: Colors.white.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.groups_rounded, color: Colors.white, size: 18),
+          const SizedBox(width: 8),
+          Text(
+            '${loading ? '—' : adminCount} registered admins',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  height: 1,
+                ),
           ),
         ],
       ),
+    );
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
+      decoration: BoxDecoration(
+        gradient: AppTheme.brandGradient,
+        borderRadius: BorderRadius.circular(30),
+        boxShadow: AppTheme.softShadow(opacity: 0.10),
+      ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final wide = constraints.maxWidth >= 720;
-          final titleBlock = _HeroTitleBlock(colors: colors);
-          final statBlock = _HeroStatBlock(
-            adminCount: adminCount,
-            loading: loading,
-            onRefresh: onRefresh,
-            wide: wide,
+          final wide = constraints.maxWidth >= 820;
+
+          final textBlock = Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Admin management',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.4,
+                      ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Create admin accounts, review elevated access, and keep the workspace controlled.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.88),
+                        height: 1.4,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ],
+            ),
+          );
+
+          final titleRow = Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+                ),
+                child: const Icon(Icons.admin_panel_settings_rounded, color: Colors.white, size: 30),
+              ),
+              const SizedBox(width: 16),
+              textBlock,
+            ],
           );
 
           if (wide) {
             return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Expanded(child: titleBlock),
-                const SizedBox(width: 20),
-                SizedBox(width: 240, child: statBlock),
+                Expanded(child: titleRow),
+                const SizedBox(width: 16),
+                adminChip,
+                const SizedBox(width: 10),
+                refreshButton,
               ],
             );
           }
 
           return Column(
-            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              titleBlock,
-              const SizedBox(height: 18),
-              statBlock,
+              titleRow,
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [adminChip, refreshButton],
+              ),
             ],
           );
         },
       ),
-    );
-  }
-}
-
-class _HeroTitleBlock extends StatelessWidget {
-  const _HeroTitleBlock({required this.colors});
-
-  final ColorScheme colors;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 56,
-          height: 56,
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.18),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white.withOpacity(0.22)),
-          ),
-          child: const Icon(Icons.admin_panel_settings_rounded, color: Colors.white, size: 30),
-        ),
-        const SizedBox(height: 18),
-        Text(
-          'Admin management',
-          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w900,
-                letterSpacing: -0.7,
-              ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Create admin accounts, review elevated access, and keep the workspace controlled.',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: Colors.white.withOpacity(0.88),
-                height: 1.35,
-                fontWeight: FontWeight.w600,
-              ),
-        ),
-      ],
-    );
-  }
-}
-
-class _HeroStatBlock extends StatelessWidget {
-  const _HeroStatBlock({
-    required this.adminCount,
-    required this.loading,
-    required this.onRefresh,
-    required this.wide,
-  });
-
-  final int adminCount;
-  final bool loading;
-  final VoidCallback onRefresh;
-  final bool wide;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: wide ? CrossAxisAlignment.stretch : CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.16),
-            borderRadius: BorderRadius.circular(26),
-            border: Border.all(color: Colors.white.withOpacity(0.24)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                loading ? '—' : '$adminCount',
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                    ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Registered admins',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.white.withOpacity(0.86),
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        OutlinedButton.icon(
-          onPressed: loading ? null : onRefresh,
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.white,
-            disabledForegroundColor: Colors.white.withOpacity(0.55),
-            side: BorderSide(color: Colors.white.withOpacity(0.38)),
-            backgroundColor: Colors.white.withOpacity(0.08),
-          ),
-          icon: const Icon(Icons.refresh_rounded),
-          label: const Text('Refresh'),
-        ),
-      ],
     );
   }
 }
@@ -774,15 +741,14 @@ class _SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     return Container(
       decoration: BoxDecoration(
-        color: colors.surface,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: colors.outlineVariant.withOpacity(0.72)),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.72)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.035),
+            color: Colors.black.withValues(alpha: 0.035),
             blurRadius: 24,
             offset: const Offset(0, 14),
           ),
@@ -806,7 +772,6 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -814,10 +779,10 @@ class _SectionHeader extends StatelessWidget {
           width: 52,
           height: 52,
           decoration: BoxDecoration(
-            color: colors.primaryContainer.withOpacity(0.55),
+            color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.55),
             borderRadius: BorderRadius.circular(18),
           ),
-          child: Icon(icon, color: colors.primary),
+          child: Icon(icon, color: Theme.of(context).colorScheme.primary),
         ),
         const SizedBox(width: 14),
         Expanded(
@@ -835,7 +800,7 @@ class _SectionHeader extends StatelessWidget {
               Text(
                 subtitle,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: colors.onSurfaceVariant,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                       height: 1.35,
                     ),
               ),
@@ -854,13 +819,12 @@ class _FormSectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     return Row(
       children: [
         Container(
           width: 8,
           height: 8,
-          decoration: BoxDecoration(color: colors.primary, shape: BoxShape.circle),
+          decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary, shape: BoxShape.circle),
         ),
         const SizedBox(width: 8),
         Text(
@@ -910,24 +874,23 @@ class _MiniStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: colors.surfaceContainerHighest.withOpacity(0.42),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.42),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: colors.outlineVariant.withOpacity(0.65)),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.65)),
       ),
       child: Row(
         children: [
-          Icon(icon, color: colors.primary, size: 22),
+          Icon(icon, color: Theme.of(context).colorScheme.primary, size: 22),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(value, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
-                Text(label, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant)),
+                Text(label, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
               ],
             ),
           ),
@@ -947,7 +910,6 @@ class _AdminAccountCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     final name = admin['displayName']?.toString().trim().isNotEmpty == true
         ? admin['displayName'].toString().trim()
         : 'Admin account';
@@ -958,10 +920,10 @@ class _AdminAccountCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: _isMainAdmin ? colors.primaryContainer.withOpacity(0.32) : colors.surfaceContainerHighest.withOpacity(0.34),
+        color: _isMainAdmin ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.32) : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.34),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: _isMainAdmin ? colors.primary.withOpacity(0.18) : colors.outlineVariant.withOpacity(0.68),
+          color: _isMainAdmin ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.18) : Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.68),
         ),
       ),
       child: Row(
@@ -971,14 +933,14 @@ class _AdminAccountCard extends StatelessWidget {
             width: 46,
             height: 46,
             decoration: BoxDecoration(
-              color: _isMainAdmin ? colors.primary : colors.primaryContainer,
+              color: _isMainAdmin ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.primaryContainer,
               borderRadius: BorderRadius.circular(16),
             ),
             child: Center(
               child: Text(
                 initial,
                 style: TextStyle(
-                  color: _isMainAdmin ? colors.onPrimary : colors.primary,
+                  color: _isMainAdmin ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.primary,
                   fontWeight: FontWeight.w900,
                   fontSize: 18,
                 ),
@@ -1004,12 +966,12 @@ class _AdminAccountCard extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: colors.primary.withOpacity(0.1),
+                          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
                           'Main',
-                          style: TextStyle(color: colors.primary, fontWeight: FontWeight.w800, fontSize: 12),
+                          style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w800, fontSize: 12),
                         ),
                       ),
                   ],
@@ -1019,7 +981,7 @@ class _AdminAccountCard extends StatelessWidget {
                   email,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
                 if (uid.isNotEmpty) ...[
                   const SizedBox(height: 6),
@@ -1027,7 +989,7 @@ class _AdminAccountCard extends StatelessWidget {
                     'UID: $uid',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
                   ),
                 ],
               ],

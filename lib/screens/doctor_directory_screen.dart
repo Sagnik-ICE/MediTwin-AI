@@ -151,12 +151,13 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
       doctor['details']?.toString() ?? '',
       doctor['division']?.toString() ?? '',
       doctor['district']?.toString() ?? '',
-      doctor['contact']?.toString() ?? '',
       doctor['doctorEmail']?.toString() ?? '',
     ];
     for (final chamber in _normalizeChambers(doctor)) {
       values.add(chamber['name']?.toString() ?? '');
       values.add(chamber['address']?.toString() ?? '');
+      values.add(chamber['appointmentContact']?.toString() ?? '');
+      values.add(chamber['contact']?.toString() ?? '');
       values.addAll(_days(chamber));
       for (final slot in _slots(chamber)) {
         values.add(_slotLabel(slot));
@@ -181,38 +182,26 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete doctor?'),
-        content: Text('Delete $name and remove the linked database profile, appointments, ratings, and schedule data? This cannot be undone.'),
+        content: Text('Remove $name from the doctor directory? This cannot be undone from the app.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
           FilledButton.icon(
             onPressed: () => Navigator.pop(context, true),
             icon: const Icon(Icons.delete_outline_rounded),
-            label: const Text('Delete permanently'),
+            label: const Text('Delete'),
           ),
         ],
       ),
     );
 
     if (confirm != true) return;
-    try {
-      await _fs.deleteDoctorCompletely(doctor);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Doctor database profile deleted.')),
-      );
-      await _reload();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to delete doctor profile: $e')),
-      );
-    }
+    await _fs.deleteDoctor(id);
+    if (mounted) await _reload();
   }
 
   Future<void> _openDoctorForm({Map<String, dynamic>? existing}) async {
     var nameValue = existing?['name']?.toString() ?? '';
     var qualificationValue = existing?['qualification']?.toString() ?? '';
-    var contactValue = existing?['contact']?.toString() ?? '';
     var detailsValue = existing?['details']?.toString() ?? '';
     var emailValue = existing?['doctorEmail']?.toString() ?? '';
     var passwordValue = '';
@@ -250,9 +239,17 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
         final name = (chamber['name'] ?? '').toString().trim();
         final days = _days(chamber);
         final slots = _slots(chamber);
+        final contact = _chamberContact(chamber);
         if (name.isEmpty) return 'Enter chamber ${i + 1} name.';
+        if (contact.isEmpty) return 'Enter appointment contact number for $name.';
         if (days.isEmpty) return 'Select available days for $name.';
         if (slots.isEmpty) return 'Add at least one patient time for $name.';
+        for (final slot in slots) {
+          final maxPatients = int.tryParse((slot['maxPatients'] ?? '0').toString()) ?? 0;
+          if (maxPatients <= 0 || maxPatients > 500) {
+            return 'Set a valid patient capacity for each time block in $name.';
+          }
+        }
       }
       return null;
     }
@@ -344,8 +341,6 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
                 'chamber': chambers.isNotEmpty ? chambers.first['name'] : '',
                 'chambers': chambers,
                 'availableDays': aggregateDays.toList(),
-                'contact': contactValue.trim(),
-                'contactInfo': contactValue.trim(),
                 'profileImageUrl': selectedImageUrl.trim(),
                 'details': detailsValue.trim(),
                 'specialtySummary': qualificationValue.trim().isNotEmpty
@@ -519,7 +514,7 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
                           ),
                           const SizedBox(height: 16),
                           _FormSection(
-                            title: 'Location and contact',
+                            title: 'Location',
                             icon: Icons.place_rounded,
                             children: [
                               LayoutBuilder(
@@ -551,15 +546,6 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
                                   if (!wide) return Column(children: [fields[0], const SizedBox(height: 12), fields[1]]);
                                   return Row(children: [Expanded(child: fields[0]), const SizedBox(width: 12), Expanded(child: fields[1])]);
                                 },
-                              ),
-                              const SizedBox(height: 12),
-                              TextFormField(
-                                initialValue: contactValue,
-                                enabled: !saving,
-                                keyboardType: TextInputType.phone,
-                                decoration: const InputDecoration(labelText: 'Contact number'),
-                                onChanged: (value) => contactValue = value,
-                                validator: (v) => (v == null || v.trim().isEmpty) ? 'Contact number is required' : null,
                               ),
                             ],
                           ),
@@ -744,26 +730,16 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
     final doctors = _visibleDoctors;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Doctors'),
-        actions: [
-          if (isAdmin)
-            Padding(
-              padding: const EdgeInsets.only(right: 12),
-              child: FilledButton.icon(
-                onPressed: () => _openDoctorForm(),
-                icon: const Icon(Icons.add_rounded),
-                label: const Text('Add doctor'),
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: _reload,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+            children: [
+              _DirectoryHero(
+                isAdmin: isAdmin,
+                onAddDoctor: isAdmin ? () => _openDoctorForm() : null,
               ),
-            ),
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: _reload,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
-          children: [
-            _DirectoryHero(isAdmin: isAdmin),
             const SizedBox(height: 16),
             _FilterCard(
               searchController: _searchController,
@@ -793,22 +769,23 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
               onClear: _clearFilters,
             ),
             const SizedBox(height: 16),
-            if (_loading)
-              const _LoadingDoctors()
-            else if (doctors.isEmpty)
-              _EmptyDoctors(hasQuery: _query.trim().isNotEmpty || _division != 'All' || _district != 'All' || _category != 'All', onClear: _clearFilters)
-            else
-              ...doctors.map(
-                (doctor) => _DoctorCard(
-                  doctor: doctor,
-                  isDedicated: _isDedicatedDoctor(doctor),
-                  isAdmin: isAdmin,
-                  onView: () => _openDoctor(doctor),
-                  onEdit: () => _openDoctorForm(existing: doctor),
-                  onDelete: () => _confirmDeleteDoctor(doctor),
+              if (_loading)
+                const _LoadingDoctors()
+              else if (doctors.isEmpty)
+                _EmptyDoctors(hasQuery: _query.trim().isNotEmpty || _division != 'All' || _district != 'All' || _category != 'All', onClear: _clearFilters)
+              else
+                ...doctors.map(
+                  (doctor) => _DoctorCard(
+                    doctor: doctor,
+                    isDedicated: _isDedicatedDoctor(doctor),
+                    isAdmin: isAdmin,
+                    onView: () => _openDoctor(doctor),
+                    onEdit: () => _openDoctorForm(existing: doctor),
+                    onDelete: () => _confirmDeleteDoctor(doctor),
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -820,6 +797,8 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
       'id': id,
       'name': '',
       'address': '',
+      'appointmentContact': '',
+      'contact': '',
       'days': <String>[],
       'availableDays': <String>[],
       'timeSlots': [_newSlotDraft()],
@@ -828,7 +807,7 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
 
   Map<String, dynamic> _newSlotDraft() {
     final id = DateTime.now().microsecondsSinceEpoch.toString();
-    return {'id': id, 'start': '17:00', 'end': '19:00', 'label': '5:00 PM - 7:00 PM'};
+    return {'id': id, 'start': '17:00', 'end': '19:00', 'label': '5:00 PM - 7:00 PM', 'maxPatients': 20};
   }
 
   Map<String, dynamic> _copyChamberDraft(Map<String, dynamic> chamber) {
@@ -837,7 +816,9 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
     return {
       'id': (chamber['id'] ?? DateTime.now().microsecondsSinceEpoch.toString()).toString(),
       'name': (chamber['name'] ?? '').toString(),
-      'address': (chamber['address'] ?? chamber['contact'] ?? '').toString(),
+      'address': (chamber['address'] ?? '').toString(),
+      'appointmentContact': _chamberContact(chamber),
+      'contact': _chamberContact(chamber),
       'days': days,
       'availableDays': days,
       'timeSlots': slots.isEmpty ? [_newSlotDraft()] : slots,
@@ -852,12 +833,15 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
               'start': (slot['start'] ?? '').toString(),
               'end': (slot['end'] ?? '').toString(),
               'label': _slotLabel(slot),
+              'maxPatients': _slotCapacity(slot),
             })
         .toList();
     return {
       'id': (chamber['id'] ?? DateTime.now().microsecondsSinceEpoch.toString()).toString(),
       'name': (chamber['name'] ?? '').toString().trim(),
       'address': (chamber['address'] ?? '').toString().trim(),
+      'appointmentContact': _chamberContact(chamber),
+      'contact': _chamberContact(chamber),
       'days': days,
       'availableDays': days,
       'timeSlots': slots,
@@ -880,12 +864,18 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
       {
         'id': 'legacy_0',
         'name': chamber,
-        'address': (doctor['chamberAddress'] ?? doctor['contact'] ?? '').toString(),
+        'address': (doctor['chamberAddress'] ?? '').toString(),
+        'appointmentContact': (doctor['contact'] ?? doctor['contactInfo'] ?? '').toString(),
+        'contact': (doctor['contact'] ?? doctor['contactInfo'] ?? '').toString(),
         'days': _stringList(doctor['availableDays']),
         'availableDays': _stringList(doctor['availableDays']),
         'timeSlots': <Map<String, dynamic>>[],
       }
     ];
+  }
+
+  String _chamberContact(Map<String, dynamic> chamber) {
+    return (chamber['appointmentContact'] ?? chamber['contact'] ?? chamber['phone'] ?? chamber['contactNumber'] ?? '').toString().trim();
   }
 
   List<String> _days(Map<String, dynamic> chamber) {
@@ -927,6 +917,13 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
     return '${_displayTime(start)} - ${_displayTime(end)}';
   }
 
+  int _slotCapacity(Map<String, dynamic> slot) {
+    final value = int.tryParse((slot['maxPatients'] ?? '20').toString()) ?? 20;
+    if (value < 1) return 1;
+    if (value > 500) return 500;
+    return value;
+  }
+
   String _displayTime(TimeOfDay time) {
     final hour12 = time.hour == 0 ? 12 : (time.hour > 12 ? time.hour - 12 : time.hour);
     final period = time.hour >= 12 ? 'PM' : 'AM';
@@ -935,42 +932,100 @@ class _DoctorDirectoryScreenState extends State<DoctorDirectoryScreen> {
 }
 
 class _DirectoryHero extends StatelessWidget {
-  const _DirectoryHero({required this.isAdmin});
+  const _DirectoryHero({required this.isAdmin, this.onAddDoctor});
 
   final bool isAdmin;
+  final VoidCallback? onAddDoctor;
 
   @override
   Widget build(BuildContext context) {
+    final addButton = onAddDoctor == null
+        ? null
+        : OutlinedButton.icon(
+            onPressed: onAddDoctor,
+            icon: const Icon(Icons.add_rounded, size: 18),
+            label: const Text('Add doctor'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.white,
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.40)),
+              backgroundColor: Colors.white.withValues(alpha: 0.08),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              minimumSize: const Size(0, 42),
+            ),
+          );
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: AppTheme.brandGradient,
         borderRadius: BorderRadius.circular(30),
-        boxShadow: AppTheme.softShadow(),
+        boxShadow: AppTheme.softShadow(opacity: 0.10),
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.16), borderRadius: BorderRadius.circular(20)),
-            child: const Icon(Icons.medical_services_rounded, color: Colors.white),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Find the right doctor', style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: Colors.white, fontWeight: FontWeight.w900)),
-                const SizedBox(height: 4),
-                Text(
-                  isAdmin ? 'Manage professional doctor profiles and chamber schedules.' : 'Search doctors by specialty, district, chamber, or availability.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.white.withValues(alpha: 0.88)),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final wide = constraints.maxWidth >= 760;
+          final header = Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
                 ),
+                child: const Icon(Icons.medical_services_rounded, color: Colors.white),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Find the right doctor',
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isAdmin
+                          ? 'Manage professional doctor profiles and chamber schedules.'
+                          : 'Search doctors by specialty, district, chamber, or availability.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Colors.white.withValues(alpha: 0.88),
+                            height: 1.35,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+
+          if (wide && addButton != null) {
+            return Row(
+              children: [
+                Expanded(child: header),
+                const SizedBox(width: 14),
+                addButton,
               ],
-            ),
-          ),
-        ],
+            );
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              header,
+              if (addButton != null) ...[
+                const SizedBox(height: 14),
+                Align(alignment: Alignment.centerLeft, child: addButton),
+              ],
+            ],
+          );
+        },
       ),
     );
   }
@@ -1082,6 +1137,7 @@ class _DoctorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final name = (doctor['name'] ?? 'Doctor').toString();
     final category = (doctor['category'] ?? '').toString();
     final qualification = (doctor['qualification'] ?? doctor['specialtySummary'] ?? '').toString();
@@ -1090,19 +1146,25 @@ class _DoctorCard extends StatelessWidget {
     final rating = (doctor['rating'] as num?)?.toDouble() ?? 0;
     final ratingCount = (doctor['ratingCount'] as num?)?.toInt() ?? 0;
     final chambers = _chambers(doctor);
+    final schedulePreview = chambers.isNotEmpty ? _schedulePreview(chambers.first) : '';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(28), border: Border.all(color: AppTheme.border), boxShadow: AppTheme.softShadow()),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: AppTheme.border),
+        boxShadow: AppTheme.softShadow(opacity: 0.06),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              DoctorPhoto(name: name, imageUrl: image, size: 72, radius: 22),
-              const SizedBox(width: 14),
+              DoctorPhoto(name: name, imageUrl: image, size: 64, radius: 20),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1111,11 +1173,21 @@ class _DoctorCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
-                          child: Text(name, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900, color: AppTheme.textPrimary)),
+                          child: Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              color: AppTheme.textPrimary,
+                              height: 1.1,
+                            ),
+                          ),
                         ),
                         if (isAdmin)
                           PopupMenuButton<String>(
                             tooltip: 'Doctor actions',
+                            padding: EdgeInsets.zero,
                             onSelected: (value) {
                               if (value == 'edit') onEdit();
                               if (value == 'delete') onDelete();
@@ -1127,35 +1199,70 @@ class _DoctorCard extends StatelessWidget {
                           ),
                       ],
                     ),
-                    if (category.isNotEmpty) Text(category, style: const TextStyle(color: AppTheme.primaryBlue, fontWeight: FontWeight.w800)),
+                    if (category.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        category,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: AppTheme.primaryBlue,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
                     if (qualification.isNotEmpty) ...[
                       const SizedBox(height: 4),
-                      Text(qualification, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppTheme.textSecondary)),
+                      Text(
+                        qualification,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: AppTheme.textSecondary,
+                          height: 1.25,
+                        ),
+                      ),
                     ],
                   ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
               if (location.isNotEmpty) _InfoChip(icon: Icons.place_rounded, label: location),
               _InfoChip(icon: Icons.star_rounded, label: ratingCount == 0 ? 'No rating' : '${rating.toStringAsFixed(1)} ($ratingCount)'),
-              _InfoChip(icon: isDedicated ? Icons.verified_rounded : Icons.list_alt_rounded, label: isDedicated ? 'Appointment enabled' : 'Listed profile'),
+              _InfoChip(icon: isDedicated ? Icons.verified_rounded : Icons.list_alt_rounded, label: isDedicated ? 'Appointments' : 'Listed profile'),
               if (chambers.isNotEmpty) _InfoChip(icon: Icons.apartment_rounded, label: '${chambers.length} chamber${chambers.length == 1 ? '' : 's'}'),
             ],
           ),
-          if (chambers.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Text(_schedulePreview(chambers.first), maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.textMuted)),
+          if (schedulePreview.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              schedulePreview,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: AppTheme.textMuted,
+                height: 1.35,
+              ),
+            ),
           ],
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
           Align(
             alignment: Alignment.centerRight,
-            child: FilledButton.icon(onPressed: onView, icon: const Icon(Icons.arrow_forward_rounded), label: const Text('View profile')),
+            child: FilledButton.icon(
+              onPressed: onView,
+              icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+              label: const Text('View profile'),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size(0, 40),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+              ),
+            ),
           ),
         ],
       ),
@@ -1188,8 +1295,26 @@ class _InfoChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(color: AppTheme.surfaceTint, borderRadius: BorderRadius.circular(999), border: Border.all(color: AppTheme.border)),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(icon, size: 16, color: AppTheme.primaryTeal), const SizedBox(width: 6), Text(label, style: const TextStyle(fontWeight: FontWeight.w700))]),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceTint,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppTheme.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: AppTheme.primaryTeal),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: AppTheme.textSecondary,
+              height: 1.1,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1271,6 +1396,18 @@ class _ChamberScheduleEditor extends StatelessWidget {
           decoration: const InputDecoration(labelText: 'Address / room details'),
           onChanged: (value) => onChanged({...chamber, 'address': value}),
         ),
+        const SizedBox(height: 10),
+        TextFormField(
+          initialValue: _chamberContact(chamber),
+          enabled: !saving,
+          keyboardType: TextInputType.phone,
+          decoration: const InputDecoration(
+            labelText: 'Appointment contact number',
+            helperText: "Use the chamber or reception number, not the doctor's personal number.",
+          ),
+          validator: (value) => (value == null || value.trim().isEmpty) ? 'Appointment contact number is required' : null,
+          onChanged: (value) => onChanged({...chamber, 'appointmentContact': value, 'contact': value}),
+        ),
         const SizedBox(height: 14),
         Text('Available days', style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w900)),
         const SizedBox(height: 8),
@@ -1308,37 +1445,67 @@ class _ChamberScheduleEditor extends StatelessWidget {
             margin: const EdgeInsets.only(bottom: 8),
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(color: AppTheme.surfaceTint, borderRadius: BorderRadius.circular(18), border: Border.all(color: AppTheme.border)),
-            child: Row(children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: saving ? null : () => onPickSlotTime(chamberIndex: index, slotIndex: slotIndex, field: 'start'),
-                  icon: const Icon(Icons.schedule_rounded),
-                  label: Text('Start ${_timeLabel(slot['start'])}'),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: saving ? null : () => onPickSlotTime(chamberIndex: index, slotIndex: slotIndex, field: 'start'),
+                      icon: const Icon(Icons.schedule_rounded),
+                      label: Text('Start ${_timeLabel(slot['start'])}'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: saving ? null : () => onPickSlotTime(chamberIndex: index, slotIndex: slotIndex, field: 'end'),
+                      icon: const Icon(Icons.schedule_rounded),
+                      label: Text('End ${_timeLabel(slot['end'])}'),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Remove time',
+                    onPressed: saving || slots.length == 1
+                        ? null
+                        : () {
+                            final next = List<Map<String, dynamic>>.from(slots)..removeAt(slotIndex);
+                            onChanged({...chamber, 'timeSlots': next});
+                          },
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ]),
+                const SizedBox(height: 10),
+                TextFormField(
+                  initialValue: (slot['maxPatients'] ?? 20).toString(),
+                  enabled: !saving,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Patient capacity for this time',
+                    helperText: 'Example: 20 patients for this time block',
+                  ),
+                  validator: (value) {
+                    final capacity = int.tryParse((value ?? '').trim());
+                    if (capacity == null || capacity < 1) return 'Enter a valid capacity';
+                    if (capacity > 500) return 'Capacity is too high';
+                    return null;
+                  },
+                  onChanged: (value) {
+                    final next = List<Map<String, dynamic>>.from(slots);
+                    next[slotIndex] = {...slot, 'maxPatients': int.tryParse(value.trim()) ?? value.trim()};
+                    onChanged({...chamber, 'timeSlots': next});
+                  },
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: saving ? null : () => onPickSlotTime(chamberIndex: index, slotIndex: slotIndex, field: 'end'),
-                  icon: const Icon(Icons.schedule_rounded),
-                  label: Text('End ${_timeLabel(slot['end'])}'),
-                ),
-              ),
-              IconButton(
-                tooltip: 'Remove time',
-                onPressed: saving || slots.length == 1
-                    ? null
-                    : () {
-                        final next = List<Map<String, dynamic>>.from(slots)..removeAt(slotIndex);
-                        onChanged({...chamber, 'timeSlots': next});
-                      },
-                icon: const Icon(Icons.close_rounded),
-              ),
-            ]),
+              ],
+            ),
           );
         }),
       ]),
     );
+  }
+
+  static String _chamberContact(Map<String, dynamic> chamber) {
+    return (chamber['appointmentContact'] ?? chamber['contact'] ?? chamber['phone'] ?? chamber['contactNumber'] ?? '').toString().trim();
   }
 
   static List<String> _stringList(dynamic raw) {

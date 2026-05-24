@@ -100,161 +100,132 @@ class _HeroPanel extends StatelessWidget {
   final int recentCount;
   final String trend;
 
+  String _scoreStatus(int score) {
+    if (score >= 80) return 'Strong';
+    if (score >= 65) return 'Fair';
+    if (score >= 50) return 'Watch closely';
+    return 'Needs attention';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final score = current.healthScore.clamp(0, 100);
-    final scoreLabel = score >= 80
-        ? 'Strong'
-        : score >= 60
-            ? 'Moderate'
-            : 'Needs attention';
+    final stats = <Widget>[
+      _HeroStat(
+        icon: Icons.event_available_rounded,
+        title: 'Latest log',
+        value: _formatDate(current.date),
+      ),
+      _HeroStat(
+        icon: Icons.article_rounded,
+        title: 'Entries',
+        value: '$logCount total',
+      ),
+      _HeroStat(
+        icon: Icons.auto_graph_rounded,
+        title: 'Reviewed',
+        value: '$recentCount recent',
+      ),
+      _HeroStat(
+        icon: Icons.favorite_rounded,
+        title: 'Status',
+        value: _scoreStatus(current.healthScore),
+      ),
+    ];
+
+    if (current.riskFlags.isNotEmpty) {
+      stats.add(
+        _HeroNotice(
+          icon: Icons.warning_amber_rounded,
+          label: '${current.riskFlags.length} risk flag${current.riskFlags.length == 1 ? '' : 's'} noted in the latest entry',
+        ),
+      );
+    }
 
     return Container(
-      padding: const EdgeInsets.all(26),
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
       decoration: BoxDecoration(
         gradient: AppTheme.brandGradient,
-        borderRadius: BorderRadius.circular(AppTheme.radiusXl),
-        boxShadow: AppTheme.softShadow(opacity: 0.14),
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final wide = constraints.maxWidth >= 720;
-          final scorePanel = _HeroScore(score: score, label: scoreLabel);
-          final copy = Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.20)),
-                ),
-                child: Text(
-                  'Last ${recentCount == 1 ? 'entry' : '$recentCount entries'} reviewed',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Health Statistics',
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                trend,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.92),
-                      height: 1.45,
-                    ),
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  _HeroChip(icon: Icons.event_available_rounded, label: 'Latest: ${_formatDate(current.date)}'),
-                  _HeroChip(icon: Icons.article_rounded, label: '$logCount total logs'),
-                  if (current.riskFlags.isNotEmpty)
-                    _HeroChip(icon: Icons.warning_amber_rounded, label: '${current.riskFlags.length} flag${current.riskFlags.length == 1 ? '' : 's'}'),
-                ],
-              ),
-            ],
-          );
-
-          if (wide) {
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(child: copy),
-                const SizedBox(width: 28),
-                scorePanel,
-              ],
-            );
-          }
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              copy,
-              const SizedBox(height: 20),
-              scorePanel,
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _HeroScore extends StatelessWidget {
-  const _HeroScore({required this.score, required this.label});
-
-  final int score;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 210,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+        borderRadius: BorderRadius.circular(30),
+        boxShadow: AppTheme.softShadow(opacity: 0.10),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Current score',
-            style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 10),
           Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Text(
-                '$score',
-                style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                      height: 1,
-                    ),
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+                ),
+                child: const Icon(Icons.analytics_rounded, color: Colors.white, size: 29),
               ),
-              Padding(
-                padding: const EdgeInsets.only(left: 4, bottom: 5),
-                child: Text(
-                  '/100',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Colors.white70,
-                        fontWeight: FontWeight.w800,
-                      ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Health Statistics',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.4,
+                            height: 1.08,
+                          ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      trend,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Colors.white.withValues(alpha: 0.88),
+                            height: 1.4,
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: score / 100,
-              minHeight: 8,
-              backgroundColor: Colors.white.withValues(alpha: 0.22),
-              valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            label,
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+          const SizedBox(height: 16),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = constraints.maxWidth >= 880
+                  ? 4
+                  : constraints.maxWidth >= 560
+                      ? 2
+                      : 1;
+              final spacing = 10.0;
+              final regularStats = stats.where((item) => item is! _HeroNotice).toList();
+              final notices = stats.whereType<_HeroNotice>().toList();
+              final width = (constraints.maxWidth - spacing * (columns - 1)) / columns;
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: spacing,
+                    runSpacing: spacing,
+                    children: regularStats
+                        .map((item) => SizedBox(width: width, child: item))
+                        .toList(),
+                  ),
+                  if (notices.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    ...notices,
+                  ],
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -262,8 +233,73 @@ class _HeroScore extends StatelessWidget {
   }
 }
 
-class _HeroChip extends StatelessWidget {
-  const _HeroChip({required this.icon, required this.label});
+class _HeroStat extends StatelessWidget {
+  const _HeroStat({
+    required this.icon,
+    required this.title,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String title;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, size: 18, color: Colors.white),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.78),
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        height: 1.1,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeroNotice extends StatelessWidget {
+  const _HeroNotice({required this.icon, required this.label});
 
   final IconData icon;
   final String label;
@@ -271,20 +307,26 @@ class _HeroChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(999),
+        color: Colors.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: Colors.white),
-          const SizedBox(width: 7),
-          Text(
-            label,
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12),
+          Icon(icon, size: 18, color: Colors.white),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    height: 1.25,
+                  ),
+            ),
           ),
         ],
       ),
@@ -358,19 +400,19 @@ class _MetricCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _Panel(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       child: Row(
         children: [
           Container(
-            width: 48,
-            height: 48,
+            width: 46,
+            height: 46,
             decoration: BoxDecoration(
               color: data.tone.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(16),
             ),
-            child: Icon(data.icon, color: data.tone, size: 24),
+            child: Icon(data.icon, color: data.tone, size: 22),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -739,33 +781,73 @@ class _EmptyAnalyticsState extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 110),
       children: [
         Container(
-          padding: const EdgeInsets.all(28),
+          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
           decoration: BoxDecoration(
-            gradient: AppTheme.softBrandGradient,
-            borderRadius: BorderRadius.circular(AppTheme.radiusXl),
-            border: Border.all(color: AppTheme.border),
+            gradient: AppTheme.brandGradient,
+            borderRadius: BorderRadius.circular(30),
+            boxShadow: AppTheme.softShadow(opacity: 0.10),
           ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+                ),
+                child: const Icon(Icons.analytics_rounded, color: Colors.white, size: 29),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Health Statistics',
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.4,
+                          ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Add health logs to unlock trend charts, averages, and personalized wellness focus areas.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Colors.white.withValues(alpha: 0.88),
+                            height: 1.4,
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _Panel(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 62,
-                height: 62,
-                decoration: BoxDecoration(
-                  color: AppTheme.accentMint,
-                  borderRadius: BorderRadius.circular(22),
-                ),
-                child: const Icon(Icons.analytics_rounded, color: AppTheme.primaryTeal, size: 30),
-              ),
-              const SizedBox(height: 18),
               Text(
-                'Health Statistics',
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900),
+                'How to unlock insights',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: AppTheme.textPrimary,
+                    ),
               ),
               const SizedBox(height: 8),
               Text(
-                'Add a few health logs to unlock trend charts, averages, and personalized wellness focus areas.',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: AppTheme.textSecondary),
+                'Once you add a few daily logs, this page will show score trends, sleep and hydration averages, wellness balance, and focus suggestions.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppTheme.textSecondary,
+                      height: 1.45,
+                    ),
               ),
             ],
           ),

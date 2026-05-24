@@ -109,8 +109,12 @@ class FirestoreService {
 
   FirebaseFirestore get _firestore => _providedFirestore ?? FirebaseFirestore.instance;
 
+  DocumentReference<Map<String, dynamic>> _userDoc(String userId) {
+    return _firestore.collection('users').doc(userId);
+  }
+
   DocumentReference<Map<String, dynamic>> _stateDoc(String userId) {
-    return _firestore.collection('users').doc(userId).collection('app').doc('state');
+    return _userDoc(userId).collection('app').doc('state');
   }
 
   DocumentReference<Map<String, dynamic>> _adminDoc(String adminId) {
@@ -131,6 +135,10 @@ class FirestoreService {
 
   CollectionReference<Map<String, dynamic>> _auditLogsCol() {
     return _firestore.collection('audit_logs');
+  }
+
+  CollectionReference<Map<String, dynamic>> _disabledAccountsCol() {
+    return _firestore.collection('disabled_accounts');
   }
 
   User? get _currentUser => FirebaseAuth.instance.currentUser;
@@ -199,6 +207,87 @@ class FirestoreService {
     }
   }
 
+  Future<bool> isAccountDisabled(String userId) async {
+    final normalizedUserId = userId.trim();
+    if (normalizedUserId.isEmpty) return false;
+
+    try {
+      final doc = await _disabledAccountsCol().doc(normalizedUserId).get();
+      final data = doc.data();
+      return doc.exists && data?['disabled'] != false;
+    } on FirebaseException catch (e) {
+      if (e.code == 'permission-denied') {
+        // If this check is blocked by older rules, fail closed for admin pages
+        // but do not break normal login during rules rollout.
+        DebugLogger.warning('Could not check disabled account status for $normalizedUserId', e);
+        return false;
+      }
+      DebugLogger.warning('Failed to check disabled account status for $normalizedUserId', e);
+      return false;
+    } catch (e) {
+      DebugLogger.warning('Failed to check disabled account status for $normalizedUserId', e);
+      return false;
+    }
+  }
+
+  Future<void> disableAppAccount({
+    required String userId,
+    String? email,
+    String? reason,
+    String? label,
+  }) async {
+    final normalizedUserId = userId.trim();
+    if (normalizedUserId.isEmpty) {
+      throw ArgumentError('User ID is required to disable an app account.');
+    }
+
+    final actor = _currentUser;
+    final normalizedEmail = email?.trim().toLowerCase() ?? '';
+    final normalizedReason = reason?.trim().isNotEmpty == true
+        ? reason!.trim()
+        : 'Account disabled by administrator.';
+
+    await _disabledAccountsCol().doc(normalizedUserId).set(
+      {
+        'uid': normalizedUserId,
+        'email': normalizedEmail,
+        'label': label?.trim() ?? '',
+        'reason': normalizedReason,
+        'disabled': true,
+        'disabledBy': actor?.uid ?? '',
+        'disabledByEmail': actor?.email ?? '',
+        'disabledAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+
+    await _safeLogAdminAction(
+      action: 'account_disabled',
+      targetType: 'user',
+      targetId: normalizedUserId,
+      label: label?.trim().isNotEmpty == true ? label!.trim() : normalizedEmail,
+      details: {
+        'email': normalizedEmail,
+        'reason': normalizedReason,
+      },
+    );
+  }
+
+  Future<void> restoreAppAccount(String userId) async {
+    final normalizedUserId = userId.trim();
+    if (normalizedUserId.isEmpty) return;
+
+    await _disabledAccountsCol().doc(normalizedUserId).delete();
+
+    await _safeLogAdminAction(
+      action: 'account_restored',
+      targetType: 'user',
+      targetId: normalizedUserId,
+      label: normalizedUserId,
+    );
+  }
+
   Future<void> saveUserState({
     required String userId,
     required UserProfile profile,
@@ -227,11 +316,17 @@ class FirestoreService {
   }
 
   Future<void> deleteUserState(String userId) async {
+    final normalizedUserId = userId.trim();
+    if (normalizedUserId.isEmpty) return;
+
     try {
-      await _stateDoc(userId).delete();
-      DebugLogger.info('Deleted user state for $userId');
+      final batch = _firestore.batch();
+      batch.delete(_stateDoc(normalizedUserId));
+      batch.delete(_userDoc(normalizedUserId));
+      await batch.commit();
+      DebugLogger.info('Deleted user Firestore profile data for $normalizedUserId');
     } catch (e, stack) {
-      DebugLogger.error('Failed to delete user state for $userId', e, stack);
+      DebugLogger.error('Failed to delete user Firestore profile data for $normalizedUserId', e, stack);
       rethrow;
     }
   }
@@ -312,16 +407,57 @@ class FirestoreService {
   }
 
   Future<void> deleteAdmin(String adminId) async {
+    await deleteAdminCompletely(adminId);
+  }
+
+  Future<void> deleteAdminCompletely(String adminId) async {
+    final normalizedAdminId = adminId.trim();
+    if (normalizedAdminId.isEmpty) {
+      throw ArgumentError('Admin ID is required.');
+    }
+
     try {
-      await _adminDoc(adminId).delete();
+      final adminSnapshot = await _adminDoc(normalizedAdminId).get();
+      final adminData = adminSnapshot.data() ?? <String, dynamic>{};
+      final email = (adminData['email'] ?? (normalizedAdminId.contains('@') ? normalizedAdminId : '')).toString().trim().toLowerCase();
+      final storedUid = (adminData['uid'] ?? '').toString().trim();
+
+      var userId = storedUid;
+      if (userId.isEmpty && !normalizedAdminId.contains('@')) {
+        userId = normalizedAdminId;
+      }
+      if (userId.isEmpty && email.isNotEmpty) {
+        userId = await _findUserIdByProfileEmail(email) ?? '';
+      }
+
+      if (userId.isNotEmpty) {
+        await deleteAccountOwnedData(userId: userId, email: email);
+      }
+
+      final registryRefs = <DocumentReference<Map<String, dynamic>>>{
+        _adminDoc(normalizedAdminId),
+        if (storedUid.isNotEmpty) _adminDoc(storedUid),
+        if (email.isNotEmpty) _adminDoc(email),
+      };
+
+      for (final ref in registryRefs) {
+        await ref.delete();
+      }
+
       await _safeLogAdminAction(
         action: 'admin_deleted',
         targetType: 'admin',
-        targetId: adminId,
-        label: adminId,
+        targetId: userId.isNotEmpty ? userId : normalizedAdminId,
+        label: email.isNotEmpty ? email : normalizedAdminId,
+        details: {
+          'adminId': normalizedAdminId,
+          'uid': userId,
+          'email': email,
+          'firestoreDataDeleted': userId.isNotEmpty,
+        },
       );
     } catch (e, stack) {
-      DebugLogger.error('Failed to delete admin $adminId', e, stack);
+      DebugLogger.error('Failed to completely delete admin $normalizedAdminId', e, stack);
       rethrow;
     }
   }
@@ -561,6 +697,141 @@ class FirestoreService {
     return null;
   }
 
+
+  DateTime? _appointmentDateTime(dynamic value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return DateTime.tryParse(value.toString());
+  }
+
+  String _dateKey(DateTime value) {
+    return '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
+  }
+
+  bool _isActiveAppointmentStatus(dynamic raw) {
+    final status = raw.toString().trim().toLowerCase();
+    return status == 'pending' || status == 'confirmed';
+  }
+
+  bool _matchesAppointmentSlot(
+    Map<String, dynamic> data, {
+    required String doctorId,
+    required String chamberId,
+    required String slotId,
+    required DateTime appointmentDate,
+  }) {
+    final date = _appointmentDateTime(data['appointmentAt']);
+    if (date == null || _dateKey(date) != _dateKey(appointmentDate)) return false;
+
+    return (data['doctorId'] ?? '').toString() == doctorId
+        && (data['chamberId'] ?? '').toString() == chamberId
+        && (data['slotId'] ?? '').toString() == slotId;
+  }
+
+  Future<int> countActiveAppointmentsForSlot({
+    required String doctorId,
+    required String chamberId,
+    required String slotId,
+    required DateTime appointmentDate,
+  }) async {
+    final normalizedDoctorId = doctorId.trim();
+    final normalizedChamberId = chamberId.trim();
+    final normalizedSlotId = slotId.trim();
+    final currentUser = _currentUser;
+
+    if (normalizedDoctorId.isEmpty ||
+        normalizedChamberId.isEmpty ||
+        normalizedSlotId.isEmpty ||
+        currentUser == null) {
+      return 0;
+    }
+
+    try {
+      final doctorSnapshot = await _firestore.collection('doctors').doc(normalizedDoctorId).get();
+      final doctorUserId = (doctorSnapshot.data()?['doctorUserId'] ?? '').toString().trim();
+
+      Query<Map<String, dynamic>> query = _doctorAppointmentsCol();
+
+      // Firestore rules intentionally block patients from reading every
+      // appointment for a doctor's slot because those documents contain other
+      // patients' names/emails/reasons. Use a query that the current user is
+      // allowed to read: the doctor's own appointment list for doctors, or the
+      // patient's own appointment list for patients.
+      if (doctorUserId.isNotEmpty && doctorUserId == currentUser.uid) {
+        query = query.where('doctorUserId', isEqualTo: doctorUserId);
+      } else {
+        query = query.where('patientUid', isEqualTo: currentUser.uid);
+      }
+
+      final snapshot = await query.limit(500).get();
+
+      return snapshot.docs.where((doc) {
+        final data = doc.data();
+        return _matchesAppointmentSlot(
+              data,
+              doctorId: normalizedDoctorId,
+              chamberId: normalizedChamberId,
+              slotId: normalizedSlotId,
+              appointmentDate: appointmentDate,
+            ) &&
+            _isActiveAppointmentStatus(data['status']);
+      }).length;
+    } on FirebaseException catch (e, stack) {
+      if (e.code == 'permission-denied') {
+        DebugLogger.warning('Skipped appointment slot capacity count because the current account cannot read that slot list.', e);
+        return 0;
+      }
+
+      DebugLogger.error('Failed to count appointment slot capacity', e, stack);
+      return 0;
+    } catch (e, stack) {
+      DebugLogger.error('Failed to count appointment slot capacity', e, stack);
+      return 0;
+    }
+  }
+
+  Future<String> suggestNextAppointmentSerial(Map<String, dynamic> appointment) async {
+    final doctorId = (appointment['doctorId'] ?? '').toString().trim();
+    final chamberId = (appointment['chamberId'] ?? '').toString().trim();
+    final slotId = (appointment['slotId'] ?? '').toString().trim();
+    final date = _appointmentDateTime(appointment['appointmentAt']);
+
+    if (doctorId.isEmpty || chamberId.isEmpty || slotId.isEmpty || date == null) {
+      return '1';
+    }
+
+    try {
+      final snapshot = await _doctorAppointmentsCol()
+          .where('doctorId', isEqualTo: doctorId)
+          .limit(500)
+          .get();
+      final targetDate = _dateKey(date);
+      var highestSerial = 0;
+      var activeCount = 0;
+
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final itemDate = _appointmentDateTime(data['appointmentAt']);
+        if (itemDate == null || _dateKey(itemDate) != targetDate) continue;
+        if ((data['chamberId'] ?? '').toString() != chamberId) continue;
+        if ((data['slotId'] ?? '').toString() != slotId) continue;
+        if (!_isActiveAppointmentStatus(data['status']) && data['status'].toString().toLowerCase() != 'completed') continue;
+
+        activeCount += 1;
+        final serialText = (data['serialNumber'] ?? '').toString().trim();
+        final serial = int.tryParse(serialText.replaceAll(RegExp(r'[^0-9]'), ''));
+        if (serial != null && serial > highestSerial) highestSerial = serial;
+      }
+
+      final next = highestSerial > 0 ? highestSerial + 1 : activeCount + 1;
+      return next < 1 ? '1' : next.toString();
+    } catch (e, stack) {
+      DebugLogger.error('Failed to suggest appointment serial', e, stack);
+      return '1';
+    }
+  }
+
   Future<String> saveDoctorAppointment(Map<String, dynamic> appointment) async {
     try {
       final docRef = appointment['id'] == null || appointment['id'].toString().isEmpty
@@ -572,6 +843,53 @@ class FirestoreService {
       final appointmentAt = _timestampFromDateLike(cloudAppointment['appointmentAt']);
       if (appointmentAt != null) {
         cloudAppointment['appointmentAt'] = appointmentAt;
+      }
+
+      final normalizedDoctorId = (cloudAppointment['doctorId'] ?? '').toString().trim();
+      final normalizedChamberId = (cloudAppointment['chamberId'] ?? '').toString().trim();
+      final normalizedSlotId = (cloudAppointment['slotId'] ?? '').toString().trim();
+      final normalizedPatientUid = (cloudAppointment['patientUid'] ?? '').toString().trim();
+      final currentUserUid = _currentUser?.uid ?? '';
+
+      if (appointmentAt != null &&
+          normalizedPatientUid.isNotEmpty &&
+          normalizedPatientUid == currentUserUid &&
+          normalizedDoctorId.isNotEmpty &&
+          normalizedChamberId.isNotEmpty &&
+          normalizedSlotId.isNotEmpty) {
+        final patientSnapshot = await _doctorAppointmentsCol()
+            .where('patientUid', isEqualTo: normalizedPatientUid)
+            .limit(300)
+            .get();
+
+        final alreadyHasActiveSlot = patientSnapshot.docs.any((doc) {
+          final data = doc.data();
+          return _matchesAppointmentSlot(
+                data,
+                doctorId: normalizedDoctorId,
+                chamberId: normalizedChamberId,
+                slotId: normalizedSlotId,
+                appointmentDate: appointmentAt.toDate(),
+              ) &&
+              _isActiveAppointmentStatus(data['status']);
+        });
+
+        if (alreadyHasActiveSlot) {
+          throw StateError('You already have an active appointment for this time.');
+        }
+      }
+
+      final maxPatients = int.tryParse((cloudAppointment['slotMaxPatients'] ?? '').toString()) ?? 0;
+      if (maxPatients > 0 && appointmentAt != null) {
+        final bookedCount = await countActiveAppointmentsForSlot(
+          doctorId: normalizedDoctorId,
+          chamberId: normalizedChamberId,
+          slotId: normalizedSlotId,
+          appointmentDate: appointmentAt.toDate(),
+        );
+        if (bookedCount >= maxPatients) {
+          throw StateError('This appointment time is fully booked.');
+        }
       }
 
       await docRef.set({
@@ -872,6 +1190,11 @@ class FirestoreService {
 
   /// Query doctors collection with optional filters.
   /// Returns a list of raw document maps.
+  ///
+  /// Keep the Firestore query to one equality filter, then apply the rest on
+  /// the client. Combining category + division + district directly in Firestore
+  /// requires composite indexes and makes the directory look empty when those
+  /// indexes are not deployed yet.
   Future<List<Map<String, dynamic>>> queryDoctors({
     String? search,
     String? category,
@@ -880,39 +1203,101 @@ class FirestoreService {
     int limit = 100,
   }) async {
     try {
-      Query<Map<String, dynamic>> q = _firestore.collection('doctors').withConverter<Map<String, dynamic>>(fromFirestore: (s, _) => s.data() ?? <String, dynamic>{}, toFirestore: (m, _) => m);
+      final normalizedCategory = category?.trim() ?? '';
+      final normalizedDivision = division?.trim() ?? '';
+      final normalizedDistrict = district?.trim() ?? '';
+      final normalizedSearch = search?.trim().toLowerCase() ?? '';
+      final safeLimit = limit <= 0 ? 100 : limit;
+      final needsClientFiltering = [
+        normalizedCategory,
+        normalizedDivision,
+        normalizedDistrict,
+      ].where((value) => value.isNotEmpty).length > 1;
+      final fetchLimit = needsClientFiltering && safeLimit < 500 ? 500 : safeLimit;
 
-      if (category != null && category.isNotEmpty) {
-        q = q.where('category', isEqualTo: category);
-      }
-      if (division != null && division.isNotEmpty) {
-        q = q.where('division', isEqualTo: division);
-      }
-      if (district != null && district.isNotEmpty) {
-        q = q.where('district', isEqualTo: district);
+      Query<Map<String, dynamic>> q = _firestore.collection('doctors').withConverter<Map<String, dynamic>>(
+            fromFirestore: (s, _) => s.data() ?? <String, dynamic>{},
+            toFirestore: (m, _) => m,
+          );
+
+      if (normalizedCategory.isNotEmpty) {
+        q = q.where('category', isEqualTo: normalizedCategory);
+      } else if (normalizedDivision.isNotEmpty) {
+        q = q.where('division', isEqualTo: normalizedDivision);
+      } else if (normalizedDistrict.isNotEmpty) {
+        q = q.where('district', isEqualTo: normalizedDistrict);
       }
 
-      final snapshot = await q.limit(limit).get();
-      var docs = snapshot.docs.map((d) => d.data()..['id'] = d.id).toList();
+      final snapshot = await q.limit(fetchLimit).get();
+      var docs = snapshot.docs.map((d) {
+        final data = Map<String, dynamic>.from(d.data());
+        data['id'] = d.id;
+        return data;
+      }).toList();
 
-      if (search != null && search.trim().isNotEmpty) {
-        final s = search.toLowerCase();
+      docs = docs.where((doc) {
+        if (normalizedCategory.isNotEmpty && (doc['category'] ?? '').toString().trim() != normalizedCategory) {
+          return false;
+        }
+        if (normalizedDivision.isNotEmpty && (doc['division'] ?? '').toString().trim() != normalizedDivision) {
+          return false;
+        }
+        if (normalizedDistrict.isNotEmpty && (doc['district'] ?? '').toString().trim() != normalizedDistrict) {
+          return false;
+        }
+        return true;
+      }).toList();
+
+      if (normalizedSearch.isNotEmpty) {
         docs = docs.where((doc) {
-          final name = (doc['name'] ?? '').toString().toLowerCase();
-          final quals = (doc['qualification'] ?? '').toString().toLowerCase();
-          final chamber = (doc['chamber'] ?? '').toString().toLowerCase();
-          final chambers = (doc['chambers'] as List<dynamic>? ?? const []);
-          final chamberMatch = chambers.whereType<Map<String, dynamic>>().any((item) {
-            final title = (item['name'] ?? '').toString().toLowerCase();
-            final address = (item['address'] ?? '').toString().toLowerCase();
-            return title.contains(s) || address.contains(s);
-          });
-          final categoryField = (doc['category'] ?? '').toString().toLowerCase();
-          return name.contains(s) || quals.contains(s) || chamber.contains(s) || chamberMatch || categoryField.contains(s);
+          final values = <String>[
+            doc['name']?.toString() ?? '',
+            doc['displayName']?.toString() ?? '',
+            doc['category']?.toString() ?? '',
+            doc['qualification']?.toString() ?? '',
+            doc['specialtySummary']?.toString() ?? '',
+            doc['details']?.toString() ?? '',
+            doc['division']?.toString() ?? '',
+            doc['district']?.toString() ?? '',
+            doc['doctorEmail']?.toString() ?? '',
+            doc['authEmail']?.toString() ?? '',
+            doc['chamber']?.toString() ?? '',
+          ];
+
+          final rawChambers = doc['chambers'];
+          if (rawChambers is Iterable) {
+            for (final rawChamber in rawChambers) {
+              if (rawChamber is! Map) continue;
+              final chamber = Map<String, dynamic>.from(rawChamber);
+              values.add(chamber['name']?.toString() ?? '');
+              values.add(chamber['address']?.toString() ?? '');
+              values.add(chamber['appointmentContact']?.toString() ?? '');
+              values.add(chamber['contact']?.toString() ?? '');
+
+              final days = chamber['days'] ?? chamber['availableDays'];
+              if (days is Iterable) {
+                values.addAll(days.map((day) => day.toString()));
+              } else if (days != null) {
+                values.add(days.toString());
+              }
+
+              final slots = chamber['timeSlots'];
+              if (slots is Iterable) {
+                for (final rawSlot in slots) {
+                  if (rawSlot is! Map) continue;
+                  values.add(rawSlot['label']?.toString() ?? '');
+                  values.add(rawSlot['start']?.toString() ?? '');
+                  values.add(rawSlot['end']?.toString() ?? '');
+                }
+              }
+            }
+          }
+
+          return values.join(' ').toLowerCase().contains(normalizedSearch);
         }).toList();
       }
 
-      return docs.cast<Map<String, dynamic>>();
+      return docs.take(safeLimit).cast<Map<String, dynamic>>().toList();
     } catch (e, stack) {
       DebugLogger.error('Failed to query doctors', e, stack);
       return <Map<String, dynamic>>[];
@@ -948,26 +1333,17 @@ class FirestoreService {
       final normalized = email.trim().toLowerCase();
       if (normalized.isEmpty) return null;
 
-      final byDoctorEmail = await _firestore
-          .collection('doctors')
-          .where('doctorEmail', isEqualTo: normalized)
-          .limit(1)
-          .get();
+      for (final field in const ['doctorEmail', 'authEmail', 'email']) {
+        final snapshot = await _firestore
+            .collection('doctors')
+            .where(field, isEqualTo: normalized)
+            .limit(1)
+            .get();
 
-      if (byDoctorEmail.docs.isNotEmpty) {
-        final doc = byDoctorEmail.docs.first;
-        return {...doc.data(), 'id': doc.id};
-      }
-
-      final byEmail = await _firestore
-          .collection('doctors')
-          .where('email', isEqualTo: normalized)
-          .limit(1)
-          .get();
-
-      if (byEmail.docs.isNotEmpty) {
-        final doc = byEmail.docs.first;
-        return {...doc.data(), 'id': doc.id};
+        if (snapshot.docs.isNotEmpty) {
+          final doc = snapshot.docs.first;
+          return {...doc.data(), 'id': doc.id};
+        }
       }
 
       return null;
@@ -1012,7 +1388,6 @@ class FirestoreService {
       final name = profile.name.trim();
       final email = profile.email.trim().toLowerCase();
       final authEmailValue = (authEmail ?? '').trim().toLowerCase();
-      final contactInfo = profile.contactInfo.trim();
       final professionalSummary = profile.healthGoals.trim();
       final division = profile.division.trim();
       final district = profile.district.trim();
@@ -1022,8 +1397,8 @@ class FirestoreService {
         if (name.isNotEmpty) 'displayName': name,
         if (email.isNotEmpty) 'doctorEmail': email,
         if (authEmailValue.isNotEmpty) 'authEmail': authEmailValue,
-        'contact': contactInfo,
-        'contactInfo': contactInfo,
+        'contact': FieldValue.delete(),
+        'contactInfo': FieldValue.delete(),
         if (professionalSummary.isNotEmpty) 'specialtySummary': professionalSummary,
         if (professionalSummary.isNotEmpty) 'details': professionalSummary,
         if (professionalSummary.isNotEmpty) 'qualification': professionalSummary,
@@ -1049,11 +1424,26 @@ class FirestoreService {
 
   Future<String> saveDoctor(Map<String, dynamic> doctor) async {
     try {
-      final docRef = doctor['id'] == null || doctor['id'].toString().isEmpty
+      final doctorId = doctor['id']?.toString().trim() ?? '';
+      final docRef = doctorId.isEmpty
           ? _firestore.collection('doctors').doc()
-          : _firestore.collection('doctors').doc(doctor['id'].toString());
-      final isNew = doctor['id'] == null || doctor['id'].toString().isEmpty;
-      await docRef.set({...doctor, 'updatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+          : _firestore.collection('doctors').doc(doctorId);
+      final isNew = doctorId.isEmpty;
+      final writeData = Map<String, dynamic>.from(doctor)
+        ..remove('id')
+        ..remove('contact')
+        ..remove('contactInfo');
+      final privacyCleanup = isNew
+          ? <String, dynamic>{}
+          : <String, dynamic>{
+              'contact': FieldValue.delete(),
+              'contactInfo': FieldValue.delete(),
+            };
+      await docRef.set({
+        ...writeData,
+        ...privacyCleanup,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
       await _safeLogAdminAction(
         action: isNew ? 'doctor_created' : 'doctor_updated',
         targetType: 'doctor',
@@ -1098,7 +1488,12 @@ class FirestoreService {
 
   Future<void> deleteDoctorCompletely(Map<String, dynamic> doctor) async {
     final doctorId = (doctor['id'] ?? '').toString().trim();
-    final doctorUserId = (doctor['doctorUserId'] ?? '').toString().trim();
+    var doctorUserId = (doctor['doctorUserId'] ?? '').toString().trim();
+    final doctorEmail = (doctor['doctorEmail'] ?? doctor['authEmail'] ?? doctor['email'] ?? '').toString().trim().toLowerCase();
+
+    if (doctorUserId.isEmpty && doctorEmail.isNotEmpty) {
+      doctorUserId = await _findUserIdByProfileEmail(doctorEmail) ?? '';
+    }
 
     if (doctorId.isEmpty) {
       throw ArgumentError('Doctor ID is required.');
@@ -1119,23 +1514,11 @@ class FirestoreService {
       );
 
       if (doctorUserId.isNotEmpty) {
-        // Dedicated doctors also have a private user app-state document and may
-        // have appointment/rating records linked by doctorUserId. Remove all of
-        // those database records as part of the doctor deletion.
-        await _deleteAppointmentsForUser(doctorUserId);
-        await _deleteRatingsForDoctorUser(doctorUserId);
-        await deleteUserState(doctorUserId);
-
-        // Clean optional records if this account ever created them through older
-        // app versions. These deletes are safe when the documents do not exist.
-        await deleteDonor(doctorUserId);
-
-        // Remove any duplicate/legacy doctor directory documents linked to this
-        // same Firebase user ID, not only the visible card that was tapped.
-        await _deleteQueryDocuments(
-          _firestore.collection('doctors').where('doctorUserId', isEqualTo: doctorUserId),
-          'doctor directory records for doctor user $doctorUserId',
-        );
+        // Dedicated doctors also have private user app-state data and may have
+        // appointments, ratings, donor records, admin records, or legacy linked
+        // doctor docs. Delete the Firestore account data instead of leaving a
+        // disabled-account placeholder document behind.
+        await deleteAccountOwnedData(userId: doctorUserId, email: doctorEmail);
       }
 
       // Ensure the selected doctor document is removed even if it had no
@@ -1167,12 +1550,49 @@ class FirestoreService {
     int limit = 200,
   }) async {
     try {
-      Query<Map<String, dynamic>> q = _firestore.collection('emergency_resources').withConverter<Map<String, dynamic>>(fromFirestore: (s, _) => s.data() ?? <String, dynamic>{}, toFirestore: (m, _) => m);
-      if (type != null && type.isNotEmpty) q = q.where('type', isEqualTo: type);
-      if (division != null && division.isNotEmpty) q = q.where('division', isEqualTo: division);
-      if (district != null && district.isNotEmpty) q = q.where('district', isEqualTo: district);
-      final snapshot = await q.limit(limit).get();
-      return snapshot.docs.map((d) => d.data()..['id'] = d.id).toList();
+      final normalizedType = type?.trim() ?? '';
+      final normalizedDivision = division?.trim() ?? '';
+      final normalizedDistrict = district?.trim() ?? '';
+      final safeLimit = limit <= 0 ? 200 : limit;
+      final needsClientFiltering = [
+        normalizedType,
+        normalizedDivision,
+        normalizedDistrict,
+      ].where((value) => value.isNotEmpty).length > 1;
+      final fetchLimit = needsClientFiltering && safeLimit < 500 ? 500 : safeLimit;
+
+      Query<Map<String, dynamic>> q = _firestore.collection('emergency_resources').withConverter<Map<String, dynamic>>(
+            fromFirestore: (s, _) => s.data() ?? <String, dynamic>{},
+            toFirestore: (m, _) => m,
+          );
+
+      if (normalizedType.isNotEmpty) {
+        q = q.where('type', isEqualTo: normalizedType);
+      } else if (normalizedDivision.isNotEmpty) {
+        q = q.where('division', isEqualTo: normalizedDivision);
+      } else if (normalizedDistrict.isNotEmpty) {
+        q = q.where('district', isEqualTo: normalizedDistrict);
+      }
+
+      final snapshot = await q.limit(fetchLimit).get();
+      final docs = snapshot.docs.map((d) {
+        final data = Map<String, dynamic>.from(d.data());
+        data['id'] = d.id;
+        return data;
+      }).where((doc) {
+        if (normalizedType.isNotEmpty && (doc['type'] ?? '').toString().trim() != normalizedType) {
+          return false;
+        }
+        if (normalizedDivision.isNotEmpty && (doc['division'] ?? '').toString().trim() != normalizedDivision) {
+          return false;
+        }
+        if (normalizedDistrict.isNotEmpty && (doc['district'] ?? '').toString().trim() != normalizedDistrict) {
+          return false;
+        }
+        return true;
+      }).take(safeLimit).toList();
+
+      return docs;
     } catch (e, stack) {
       DebugLogger.error('Failed to query emergency resources', e, stack);
       return <Map<String, dynamic>>[];
@@ -1225,12 +1645,49 @@ class FirestoreService {
     int limit = 200,
   }) async {
     try {
-      Query<Map<String, dynamic>> q = _firestore.collection('blood_donors').withConverter<Map<String, dynamic>>(fromFirestore: (s, _) => s.data() ?? <String, dynamic>{}, toFirestore: (m, _) => m);
-      if (bloodGroup != null && bloodGroup.isNotEmpty) q = q.where('bloodGroup', isEqualTo: bloodGroup.toUpperCase());
-      if (division != null && division.isNotEmpty) q = q.where('division', isEqualTo: division);
-      if (district != null && district.isNotEmpty) q = q.where('district', isEqualTo: district);
-      final snapshot = await q.limit(limit).get();
-      return snapshot.docs.map((d) => d.data()..['id'] = d.id).toList();
+      final normalizedBloodGroup = bloodGroup?.trim().toUpperCase() ?? '';
+      final normalizedDivision = division?.trim() ?? '';
+      final normalizedDistrict = district?.trim() ?? '';
+      final safeLimit = limit <= 0 ? 200 : limit;
+      final needsClientFiltering = [
+        normalizedBloodGroup,
+        normalizedDivision,
+        normalizedDistrict,
+      ].where((value) => value.isNotEmpty).length > 1;
+      final fetchLimit = needsClientFiltering && safeLimit < 500 ? 500 : safeLimit;
+
+      Query<Map<String, dynamic>> q = _firestore.collection('blood_donors').withConverter<Map<String, dynamic>>(
+            fromFirestore: (s, _) => s.data() ?? <String, dynamic>{},
+            toFirestore: (m, _) => m,
+          );
+
+      if (normalizedBloodGroup.isNotEmpty) {
+        q = q.where('bloodGroup', isEqualTo: normalizedBloodGroup);
+      } else if (normalizedDivision.isNotEmpty) {
+        q = q.where('division', isEqualTo: normalizedDivision);
+      } else if (normalizedDistrict.isNotEmpty) {
+        q = q.where('district', isEqualTo: normalizedDistrict);
+      }
+
+      final snapshot = await q.limit(fetchLimit).get();
+      final docs = snapshot.docs.map((d) {
+        final data = Map<String, dynamic>.from(d.data());
+        data['id'] = d.id;
+        return data;
+      }).where((doc) {
+        if (normalizedBloodGroup.isNotEmpty && (doc['bloodGroup'] ?? '').toString().trim().toUpperCase() != normalizedBloodGroup) {
+          return false;
+        }
+        if (normalizedDivision.isNotEmpty && (doc['division'] ?? '').toString().trim() != normalizedDivision) {
+          return false;
+        }
+        if (normalizedDistrict.isNotEmpty && (doc['district'] ?? '').toString().trim() != normalizedDistrict) {
+          return false;
+        }
+        return true;
+      }).take(safeLimit).toList();
+
+      return docs;
     } catch (e, stack) {
       DebugLogger.error('Failed to query donors', e, stack);
       return <Map<String, dynamic>>[];
@@ -1291,12 +1748,33 @@ class FirestoreService {
         userId: normalizedUserId,
         email: normalizedEmail,
       );
+      await _disabledAccountsCol().doc(normalizedUserId).delete();
       await deleteUserState(normalizedUserId);
 
-      DebugLogger.info('Deleted complete cloud account data for $normalizedUserId');
+      DebugLogger.info('Deleted complete Firestore account data for $normalizedUserId');
     } catch (e, stack) {
       DebugLogger.error('Failed to delete complete account data for $normalizedUserId', e, stack);
       rethrow;
+    }
+  }
+
+  Future<String?> _findUserIdByProfileEmail(String email) async {
+    final normalizedEmail = email.trim().toLowerCase();
+    if (normalizedEmail.isEmpty) return null;
+
+    try {
+      final snapshot = await _firestore
+          .collectionGroup('app')
+          .where('profile.email', isEqualTo: normalizedEmail)
+          .limit(1)
+          .get();
+
+      if (snapshot.docs.isEmpty) return null;
+      final parentUserDoc = snapshot.docs.first.reference.parent.parent;
+      return parentUserDoc?.id;
+    } catch (e, stack) {
+      DebugLogger.warning('Failed to find user profile by email $normalizedEmail', e, stack);
+      return null;
     }
   }
 
