@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/app_state.dart';
+import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import 'profile_screen.dart';
 
@@ -113,6 +114,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                           const SizedBox(height: 14),
                           _SectionCard(
+                            title: 'AI Connect',
+                            subtitle: appState.usingAutomaticLocalAi
+                                ? 'Automatic local Ollama is active for laptop/web testing.'
+                                : 'A custom AI server URL is saved for this device.',
+                            children: [
+                              _ActionTile(
+                                icon: Icons.hub_rounded,
+                                title: 'AI Server URL',
+                                subtitle: appState.usingAutomaticLocalAi
+                                    ? 'Auto: ${StorageService.defaultApiUrl}'
+                                    : 'Connected URL: ${appState.effectiveAiServerUrl}',
+                                enabled: !_actionsDisabled,
+                                onTap: () => _openAiConnectDialog(context, appState),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          _SectionCard(
                             title: 'Session',
                             subtitle: 'Logout or permanently delete the current account.',
                             children: [
@@ -217,6 +236,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Future<void> _openAiConnectDialog(BuildContext context, AppState appState) async {
+    final saved = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => _AiConnectDialog(appState: appState),
+    );
+
+    if (!context.mounted || saved != true) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('AI connection settings updated.')),
+    );
+  }
+
   Future<void> _deleteAccount(AppState appState) async {
     if (_deletingAccount) return;
 
@@ -306,6 +339,220 @@ class _SettingsHero extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _AiConnectDialog extends StatefulWidget {
+  const _AiConnectDialog({required this.appState});
+
+  final AppState appState;
+
+  @override
+  State<_AiConnectDialog> createState() => _AiConnectDialogState();
+}
+
+class _AiConnectDialogState extends State<_AiConnectDialog> {
+  late final TextEditingController _urlController;
+  bool _testing = false;
+  bool? _connected;
+  String? _message;
+
+  @override
+  void initState() {
+    super.initState();
+    _urlController = TextEditingController(
+      text: widget.appState.usingAutomaticLocalAi ? '' : widget.appState.effectiveAiServerUrl,
+    );
+  }
+
+  @override
+  void dispose() {
+    _urlController.dispose();
+    super.dispose();
+  }
+
+  String get _trimmedUrl => _urlController.text.trim();
+
+  Future<void> _testAndSave() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+
+    if (_trimmedUrl.isEmpty) {
+      await widget.appState.resetAiServerUrlToLocal();
+      if (!mounted) return;
+      setState(() {
+        _connected = true;
+        _message = 'Automatic local mode enabled. Laptop/web will use local Ollama automatically.';
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+      return;
+    }
+
+    setState(() {
+      _testing = true;
+      _connected = null;
+      _message = 'Testing AI server connection...';
+    });
+
+    final connected = await widget.appState.saveAiServerUrlAfterTest(_trimmedUrl);
+    if (!mounted) return;
+
+    setState(() {
+      _testing = false;
+      _connected = connected;
+      _message = connected
+          ? 'Connected successfully. This URL is now saved on this device.'
+          : 'Connection failed. Check that Ollama and Cloudflare Tunnel are running, and use a URL ending with /api/chat.';
+    });
+
+    if (connected) {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    }
+  }
+
+  Future<void> _testOnly() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final target = _trimmedUrl.isEmpty ? StorageService.defaultApiUrl : _trimmedUrl;
+
+    setState(() {
+      _testing = true;
+      _connected = null;
+      _message = 'Testing AI server connection...';
+    });
+
+    final connected = await widget.appState.testBackendConnection(urlOverride: target);
+    if (!mounted) return;
+
+    setState(() {
+      _testing = false;
+      _connected = connected;
+      _message = connected
+          ? 'Connection successful. Press OK to save this setup.'
+          : 'Connection failed. Verify the URL, Ollama model, and tunnel terminal.';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final statusColor = _connected == null
+        ? AppTheme.textMuted
+        : _connected == true
+            ? Colors.green.shade700
+            : colorScheme.error;
+    final statusIcon = _connected == null
+        ? Icons.info_outline_rounded
+        : _connected == true
+            ? Icons.check_circle_rounded
+            : Icons.error_rounded;
+
+    return AlertDialog(
+      title: const Text('AI Connect'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Use automatic local Ollama on this laptop, or paste a Cloudflare Tunnel /api/chat URL for phone showcase testing.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.4),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: _urlController,
+                enabled: !_testing,
+                keyboardType: TextInputType.url,
+                decoration: const InputDecoration(
+                  labelText: 'AI Server URL',
+                  hintText: 'https://example.trycloudflare.com/api/chat',
+                  helperText: 'Leave empty to use automatic local Ollama on this laptop.',
+                  prefixIcon: Icon(Icons.link_rounded),
+                ),
+                onChanged: (_) {
+                  if (_connected != null || _message != null) {
+                    setState(() {
+                      _connected = null;
+                      _message = null;
+                    });
+                  }
+                },
+                onSubmitted: (_) {
+                  if (!_testing) _testAndSave();
+                },
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: statusColor.withValues(alpha: 0.20)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_testing)
+                      const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else
+                      Icon(statusIcon, size: 18, color: statusColor),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _message ?? 'Not tested yet. Paste the tunnel URL and press Test or OK.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: statusColor,
+                              fontWeight: FontWeight.w800,
+                              height: 1.3,
+                            ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Current active URL: ${widget.appState.effectiveAiServerUrl}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppTheme.textSecondary,
+                      height: 1.35,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _testing ? null : () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        OutlinedButton(
+          onPressed: _testing ? null : _testOnly,
+          child: const Text('Test'),
+        ),
+        FilledButton.icon(
+          onPressed: _testing ? null : _testAndSave,
+          icon: _testing
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : const Icon(Icons.check_rounded),
+          label: const Text('OK'),
+        ),
+      ],
     );
   }
 }

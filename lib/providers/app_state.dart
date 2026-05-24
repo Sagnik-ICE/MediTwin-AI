@@ -383,7 +383,7 @@ class AppState extends ChangeNotifier {
     isChatLoading = true;
     notifyListeners();
 
-    final endpoint = apiUrl.trim().isEmpty ? StorageService.defaultApiUrl : apiUrl.trim();
+    final endpoint = effectiveAiServerUrl;
 
     String answer;
     try {
@@ -559,10 +559,38 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  String get effectiveAiServerUrl {
+    final trimmed = apiUrl.trim();
+    return trimmed.isEmpty ? StorageService.defaultApiUrl : trimmed;
+  }
+
+  bool get usingAutomaticLocalAi => effectiveAiServerUrl == StorageService.defaultApiUrl;
+
   Future<void> setApiUrl(String value) async {
-    apiUrl = value;
-    await _storageService.setApiUrl(value);
+    final normalized = value.trim();
+    apiUrl = normalized.isEmpty ? StorageService.defaultApiUrl : normalized;
+    await _storageService.setApiUrl(apiUrl);
     notifyListeners();
+  }
+
+  Future<bool> saveAiServerUrlAfterTest(String value) async {
+    final normalized = value.trim();
+    if (normalized.isEmpty || normalized == StorageService.defaultApiUrl) {
+      await setApiUrl(StorageService.defaultApiUrl);
+      return true;
+    }
+
+    final connected = await _aiService.testConnection(normalized);
+    if (!connected) {
+      return false;
+    }
+
+    await setApiUrl(normalized);
+    return true;
+  }
+
+  Future<void> resetAiServerUrlToLocal() async {
+    await setApiUrl(StorageService.defaultApiUrl);
   }
 
   Future<void> setReminderPreferences(ReminderPreferences value) async {
@@ -591,8 +619,8 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<bool> testBackendConnection() async {
-    final endpoint = apiUrl.trim().isEmpty ? StorageService.defaultApiUrl : apiUrl.trim();
+  Future<bool> testBackendConnection({String? urlOverride}) async {
+    final endpoint = urlOverride?.trim().isNotEmpty == true ? urlOverride!.trim() : effectiveAiServerUrl;
     return _aiService.testConnection(endpoint);
   }
 
@@ -1069,7 +1097,7 @@ class AppState extends ChangeNotifier {
     await _firestoreService.deleteAdminCompletely(adminId);
   }
 
-  String get aiServerIp => apiUrl.trim().isEmpty ? StorageService.defaultApiUrl : apiUrl;
+  String get aiServerIp => effectiveAiServerUrl;
 
   Future<void> setAiServerIp(String value) async {
     // Kept for backward compatibility. The app now defaults to local Ollama automatically.

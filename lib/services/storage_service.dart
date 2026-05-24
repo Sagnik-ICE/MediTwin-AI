@@ -25,17 +25,21 @@ class StorageService {
 
   Future<void> setApiUrl(String url) async {
     final prefs = await SharedPreferences.getInstance();
-    // The app uses automatic local Ollama. Keep this method only for backward
-    // compatibility with older screens/services and clear any old manual value.
-    await prefs.remove(_apiUrlKey);
+    final normalized = url.trim();
+    if (normalized.isEmpty || normalized == defaultApiUrl) {
+      await prefs.remove(_apiUrlKey);
+      return;
+    }
+    await prefs.setString(_apiUrlKey, normalized);
   }
 
   Future<String> getApiUrl() async {
     final prefs = await SharedPreferences.getInstance();
-    // Clear any endpoint saved by older builds so the app always returns to
-    // automatic local Ollama.
-    await prefs.remove(_apiUrlKey);
-    return defaultApiUrl;
+    final saved = prefs.getString(_apiUrlKey)?.trim();
+    if (saved == null || saved.isEmpty) {
+      return defaultApiUrl;
+    }
+    return saved;
   }
 
   Future<void> saveReminderPreferences(ReminderPreferences preferences) async {

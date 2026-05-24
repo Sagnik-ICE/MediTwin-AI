@@ -127,14 +127,19 @@ class _MyAppointmentsScreenState extends State<MyAppointmentsScreen> {
     final upcoming = _appointments.where(_isUpcomingOrActive).toList();
     final past = _appointments.where((item) => !_isUpcomingOrActive(item)).toList();
 
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: CustomScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
-            sliver: SliverList(
+    return Container(
+      decoration: const BoxDecoration(gradient: AppTheme.softBrandGradient),
+      child: SafeArea(
+        top: true,
+        bottom: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 120),
+                sliver: SliverList(
               delegate: SliverChildListDelegate(
                 [
                   _HeroPanel(total: _appointments.length, active: upcoming.length),
@@ -188,10 +193,12 @@ class _MyAppointmentsScreenState extends State<MyAppointmentsScreen> {
                       ),
                   ],
                 ],
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

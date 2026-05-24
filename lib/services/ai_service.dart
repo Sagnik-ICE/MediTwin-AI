@@ -68,6 +68,7 @@ class AiService {
 
         final body = response.body.toLowerCase();
         if (response.statusCode == 404 || body.contains('model') && body.contains('not found')) {
+          lastError = 'Ollama model $model was not available';
           DebugLogger.warning('Ollama model $model was not available. Trying fallback model.');
           continue;
         }
@@ -88,7 +89,7 @@ class AiService {
     }
 
     final modelHint = _preferredModels.join(', ');
-    return '$fallbackConnectionMessage\n\nMake sure Ollama is running on this laptop and at least one model is available: $modelHint.${lastError == null ? '' : '\n\nLast error: $lastError'}';
+    return '$fallbackConnectionMessage\n\nIf you are using this app on a phone, open Settings > AI Connect and paste the Cloudflare Tunnel URL ending with /api/chat. Also make sure Ollama is running and at least one model is available: $modelHint.${lastError == null ? '' : '\n\nLast error: $lastError'}';
   }
 
   Future<bool> testConnection(String apiUrl) async {
@@ -97,12 +98,21 @@ class AiService {
       return false;
     }
 
+    // First verify the Ollama server itself. This is more reliable for
+    // Cloudflare Tunnel because it proves the tunnel reaches Ollama even before
+    // a specific model is loaded.
+    final serverReachable = await _testOllamaServer(uri);
+    if (serverReachable) {
+      return true;
+    }
+
+    // Fallback: some proxies may block GET-style checks but still allow /api/chat.
     for (final model in _preferredModels) {
       try {
         final response = await http
             .post(
               uri,
-              headers: {'Content-Type': 'application/json'},
+              headers: const {'Content-Type': 'application/json'},
               body: jsonEncode({
                 'model': model,
                 'stream': false,
@@ -130,11 +140,46 @@ class AiService {
     return false;
   }
 
+  Future<bool> _testOllamaServer(Uri chatUri) async {
+    final rootUri = chatUri.replace(path: '/', query: null, fragment: null);
+    final tagsUri = chatUri.replace(path: '/api/tags', query: null, fragment: null);
+
+    try {
+      final rootResponse = await http.get(rootUri).timeout(const Duration(seconds: 8));
+      if (rootResponse.statusCode < 200 || rootResponse.statusCode >= 500) {
+        DebugLogger.warning('Ollama root check failed with status ${rootResponse.statusCode}', rootResponse.body);
+        return false;
+      }
+
+      final tagsResponse = await http.get(tagsUri).timeout(const Duration(seconds: 8));
+      if (tagsResponse.statusCode >= 200 && tagsResponse.statusCode < 300) {
+        return true;
+      }
+
+      DebugLogger.warning('Ollama tags check failed with status ${tagsResponse.statusCode}', tagsResponse.body);
+      return false;
+    } catch (e) {
+      DebugLogger.warning('Ollama server reachability check failed', e);
+      return false;
+    }
+  }
+
   Uri? _normalizeEndpoint(String apiUrl) {
-    final raw = apiUrl.trim().isEmpty ? 'http://127.0.0.1:11434/api/chat' : apiUrl.trim();
-    final withScheme = raw.startsWith('http://') || raw.startsWith('https://') ? raw : 'http://$raw';
+    final rawInput = apiUrl.trim().isEmpty ? 'http://127.0.0.1:11434/api/chat' : apiUrl.trim();
+
+    // Remove accidental spaces/newlines from copied tunnel URLs.
+    final raw = rawInput.replaceAll(RegExp(r'\s+'), '');
+    final lower = raw.toLowerCase();
+    final hasScheme = lower.startsWith('http://') || lower.startsWith('https://');
+
+    final withScheme = hasScheme
+        ? raw
+        : lower.contains('trycloudflare.com') || lower.contains('cfargotunnel.com')
+            ? 'https://$raw'
+            : 'http://$raw';
+
     final parsed = Uri.tryParse(withScheme);
-    if (parsed == null) {
+    if (parsed == null || parsed.host.trim().isEmpty) {
       return null;
     }
 
@@ -511,5 +556,5 @@ Assistant: Good. Monitor it for now, and update me if it gets worse or a new sym
 
   /// Public fallback message used when the AI server cannot be reached.
   static const String fallbackConnectionMessage =
-      'Unable to reach local Ollama right now. Your health data is still saved.';
+      'Unable to reach the configured AI server right now. Your health data is still saved.';
 }

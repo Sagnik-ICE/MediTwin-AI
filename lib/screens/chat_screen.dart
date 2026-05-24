@@ -585,11 +585,20 @@ class _Composer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        border: Border(top: BorderSide(color: Theme.of(context).dividerColor.withValues(alpha: 0.08))),
+        color: AppTheme.scaffold,
+        border: Border(top: BorderSide(color: AppTheme.border.withValues(alpha: 0.95))),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.primaryNavy.withValues(alpha: 0.06),
+            blurRadius: 22,
+            offset: const Offset(0, -8),
+          ),
+        ],
       ),
       child: Center(
         child: ConstrainedBox(
@@ -598,14 +607,20 @@ class _Composer extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Expanded(
-                child: DecoratedBox(
+                child: Container(
                   decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(22),
+                    color: AppTheme.surface,
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: enabled
+                          ? AppTheme.primaryBlue.withValues(alpha: 0.24)
+                          : AppTheme.border.withValues(alpha: 0.85),
+                      width: 1.2,
+                    ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.035),
-                        blurRadius: 18,
+                        color: AppTheme.primaryNavy.withValues(alpha: 0.07),
+                        blurRadius: 20,
                         offset: const Offset(0, 8),
                       ),
                     ],
@@ -616,17 +631,42 @@ class _Composer extends StatelessWidget {
                     minLines: 1,
                     maxLines: 5,
                     textInputAction: TextInputAction.send,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
                     onSubmitted: (_) {
                       if (enabled) onSend();
                     },
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       hintText: 'Message MediTwin...',
-                      prefixIcon: Icon(Icons.chat_bubble_outline_rounded),
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      disabledBorder: InputBorder.none,
-                      contentPadding: EdgeInsets.fromLTRB(0, 16, 16, 16),
+                      hintStyle: theme.textTheme.bodyMedium?.copyWith(
+                        color: AppTheme.textMuted,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      prefixIcon: Icon(
+                        Icons.chat_bubble_outline_rounded,
+                        color: AppTheme.primaryBlue.withValues(alpha: enabled ? 0.78 : 0.35),
+                      ),
+                      filled: true,
+                      fillColor: enabled ? AppTheme.surfaceSoft.withValues(alpha: 0.62) : AppTheme.surfaceSoft,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(23),
+                        borderSide: BorderSide.none,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(23),
+                        borderSide: BorderSide.none,
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(23),
+                        borderSide: BorderSide.none,
+                      ),
+                      disabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(23),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.fromLTRB(0, 16, 16, 16),
                     ),
                   ),
                 ),
@@ -639,8 +679,10 @@ class _Composer extends StatelessWidget {
                   onPressed: enabled ? onSend : null,
                   style: FilledButton.styleFrom(
                     padding: EdgeInsets.zero,
-                    backgroundColor: const Color(0xFF071B2C),
+                    backgroundColor: AppTheme.primaryNavy,
+                    disabledBackgroundColor: AppTheme.textMuted.withValues(alpha: 0.28),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    elevation: 0,
                   ),
                   child: const Icon(Icons.arrow_upward_rounded),
                 ),
