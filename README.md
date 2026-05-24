@@ -430,5 +430,3 @@ Department of Information and Communication Engineering
 GitHub: [@Sagnik-ICE](https://github.com/Sagnik-ICE)  
 Email: dibbaysaha17@gmail.com  
 Email: dibbay242-50-014@diu.edu.bd
-#   M e d i T w i n - A I  
- 
